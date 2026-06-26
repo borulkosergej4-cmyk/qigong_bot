@@ -81,6 +81,17 @@ def init_db():
                     created_at TIMESTAMP DEFAULT NOW()
                 )
             """)
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS bookings (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT,
+                    phone TEXT,
+                    source TEXT,
+                    username TEXT,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
         conn.commit()
 
 
@@ -263,6 +274,21 @@ def get_logo() -> bytes | None:
             cur.execute("SELECT data FROM bot_config WHERE key='logo'")
             row = cur.fetchone()
             return bytes(row[0]) if row else None
+
+
+# ── Заявки на запись ──────────────────────────────────────────────────────────
+
+def save_booking(name: str, phone: str, source: str, username: str = "") -> int:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO bookings (name, phone, source, username) "
+                "VALUES (%s, %s, %s, %s) RETURNING id",
+                (name, phone, source, username),
+            )
+            bid = cur.fetchone()[0]
+        conn.commit()
+    return bid
 
 
 # ── Фото для постов ───────────────────────────────────────────────────────────

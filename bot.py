@@ -21,13 +21,50 @@ for _pv in ("ALL_PROXY", "all_proxy", "HTTP_PROXY", "http_proxy", "HTTPS_PROXY",
 
 from agents.base_agent import BaseAgent
 from data.knowledge import CONFUCIUS_PROMPT
+from data.database import save_booking
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 CLIENT_BOT_TOKEN = os.getenv("TELEGRAM_CLIENT_TOKEN", "").strip()
+ADMIN_BOT_TOKEN  = os.getenv("ADMIN_BOT_TOKEN", "").strip()
+_raw_ids = os.getenv("ADMIN_IDS", "").strip()
+ADMIN_IDS = [int(x) for x in _raw_ids.split(",") if x.strip().isdigit()]
 
 _agent = BaseAgent(CONFUCIUS_PROMPT)
+
+# user_id -> {"step": "name"/"phone", "name": str, "username": str}
+_signup: dict[int, dict] = {}
+
+_SIGNUP_KEYWORDS = (
+    "записаться", "запишите", "хочу записаться", "как записаться",
+    "запись на", "хотел бы записаться", "можно записаться",
+    "хочу попасть", "как попасть", "попасть на занятие",
+)
+
+
+def _wants_signup(text: str) -> bool:
+    t = text.lower()
+    return any(kw in t for kw in _SIGNUP_KEYWORDS)
+
+
+async def _notify_admins(name: str, phone: str, source: str, username: str):
+    if not ADMIN_BOT_TOKEN or not ADMIN_IDS:
+        return
+    from telegram import Bot
+    text = (
+        f"🔔 Новая заявка на занятие\n"
+        f"👤 Имя: {name}\n"
+        f"📱 Телефон: {phone}\n"
+        f"📲 Источник: {source}"
+        + (f"\n🆔 @{username}" if username else "")
+    )
+    bot = Bot(token=ADMIN_BOT_TOKEN)
+    for aid in ADMIN_IDS:
+        try:
+            await bot.send_message(aid, text)
+        except Exception as e:
+            logger.warning(f"Не удалось уведомить админа {aid}: {e}")
 
 
 def _main_keyboard():
@@ -96,11 +133,10 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not text:
         return
 
-    chat_type = update.effective_chat.type  # 'private', 'group', 'supergroup'
+    chat_type = update.effective_chat.type
     is_group = chat_type in ("group", "supergroup")
 
     if is_group:
-        # Пропускаем пересланные посты канала и сообщения ботов
         if msg.forward_from_chat or (msg.from_user and msg.from_user.is_bot):
             return
         bot_username = (await ctx.bot.get_me()).username
@@ -111,16 +147,43 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             msg.reply_to_message.from_user.id == ctx.bot.id
         )
         has_question = "?" in text
-        # Отвечаем на вопросы, упоминания и ответы на сообщения бота
         if not (is_mentioned or is_reply_to_bot or has_question):
             return
         text = text.replace(f"@{bot_username}", "").strip()
 
     await ctx.bot.send_chat_action(update.effective_chat.id, "typing")
+
+    # ── Флоу записи ───────────────────────────────────────────────────────────
+    state = _signup.get(uid)
+
+    if state and state["step"] == "name":
+        _signup[uid]["name"] = text
+        _signup[uid]["step"] = "phone"
+        await msg.reply_text("Спасибо. Теперь напишите ваш номер телефона:")
+        return
+
+    if state and state["step"] == "phone":
+        name = _signup.pop(uid)["name"]
+        phone = text
+        username = update.effective_user.username or ""
+        save_booking(name, phone, "telegram", username)
+        await _notify_admins(name, phone, "Telegram", username)
+        _agent.clear_history(uid)
+        await msg.reply_text(
+            f"Записал вас, {name}. Тренер свяжется с вами в ближайшее время.",
+            reply_markup=_main_keyboard(),
+        )
+        return
+
+    if _wants_signup(text):
+        _signup[uid] = {"step": "name", "username": update.effective_user.username or ""}
+        await msg.reply_text("Хорошо, запишу вас. Как вас зовут?")
+        return
+
+    # ── Обычный диалог с Конфуцием ────────────────────────────────────────────
     reply = await _agent.ask(uid, text)
 
     if is_group:
-        # В группе отвечаем без кнопок, цитируя сообщение пользователя
         await msg.reply_text(reply)
     else:
         await msg.reply_text(reply, reply_markup=_main_keyboard())

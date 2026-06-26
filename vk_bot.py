@@ -15,13 +15,48 @@ except Exception:
 
 from agents.base_agent import BaseAgent
 from data.knowledge import CONFUCIUS_PROMPT
+from data.database import save_booking
 
 logger = logging.getLogger(__name__)
 
-VK_TOKEN    = os.getenv("VK_TOKEN", "").strip()
-VK_GROUP_ID = os.getenv("VK_GROUP_ID", "").strip()
+VK_TOKEN        = os.getenv("VK_TOKEN", "").strip()
+VK_GROUP_ID     = os.getenv("VK_GROUP_ID", "").strip()
+ADMIN_BOT_TOKEN = os.getenv("ADMIN_BOT_TOKEN", "").strip()
+_raw_ids = os.getenv("ADMIN_IDS", "").strip()
+ADMIN_IDS = [int(x) for x in _raw_ids.split(",") if x.strip().isdigit()]
 
 _agent = BaseAgent(CONFUCIUS_PROMPT)
+
+# vk_user_id -> {"step": "name"/"phone", "name": str}
+_signup: dict[int, dict] = {}
+
+_SIGNUP_KEYWORDS = (
+    "записаться", "запишите", "хочу записаться", "как записаться",
+    "запись на", "хотел бы записаться", "можно записаться",
+    "хочу попасть", "как попасть", "попасть на занятие",
+)
+
+
+def _wants_signup(text: str) -> bool:
+    return any(kw in text.lower() for kw in _SIGNUP_KEYWORDS)
+
+
+async def _notify_admins(name: str, phone: str):
+    if not ADMIN_BOT_TOKEN or not ADMIN_IDS:
+        return
+    from telegram import Bot
+    text = (
+        f"🔔 Новая заявка на занятие\n"
+        f"👤 Имя: {name}\n"
+        f"📱 Телефон: {phone}\n"
+        f"📲 Источник: VK"
+    )
+    bot = Bot(token=ADMIN_BOT_TOKEN)
+    for aid in ADMIN_IDS:
+        try:
+            await bot.send_message(aid, text)
+        except Exception as e:
+            logger.warning(f"Не удалось уведомить админа {aid}: {e}")
 
 _VK_API = "https://api.vk.com/method"
 _VK_VERSION = "5.131"
@@ -90,8 +125,32 @@ async def _poll():
 
 async def _handle(user_id: int, text: str):
     try:
+        state = _signup.get(user_id)
+
+        if state and state["step"] == "name":
+            _signup[user_id]["name"] = text
+            _signup[user_id]["step"] = "phone"
+            await _send_message(user_id, "Спасибо. Теперь напишите ваш номер телефона:")
+            return
+
+        if state and state["step"] == "phone":
+            name = _signup.pop(user_id)["name"]
+            phone = text
+            save_booking(name, phone, "vk", str(user_id))
+            await _notify_admins(name, phone)
+            _agent.clear_history(user_id)
+            await _send_message(user_id,
+                f"Записал вас, {name}. Тренер свяжется с вами в ближайшее время.")
+            return
+
+        if _wants_signup(text):
+            _signup[user_id] = {"step": "name"}
+            await _send_message(user_id, "Хорошо, запишу вас. Как вас зовут?")
+            return
+
         reply = await _agent.ask(user_id, text)
         await _send_message(user_id, reply)
+
     except Exception as e:
         logger.error(f"VK handle error: {e}")
 
