@@ -81,11 +81,14 @@ class BaseAgent:
 
     async def ask(self, user_id: int, text: str) -> str:
         history = self._history(user_id)
+        is_first = len(history) == 0
         history.append({"role": "user", "content": text})
         if len(history) > _MAX_HISTORY:
             history[:] = history[-_MAX_HISTORY:]
 
         system = self.system
+        if is_first:
+            system = system + "\n\nЭто первое сообщение от этого человека — обязательно представься."
         if any(kw in text.lower() for kw in self._SCHEDULE_KEYWORDS):
             try:
                 import asyncio
