@@ -141,10 +141,9 @@ def _generate_text(user_prompt: str, system: str | None = None) -> str:
 # VK публикация
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def _vk_post(text: str, photo_bytes: bytes | None = None) -> bool:
+async def _vk_post(text: str, photo_bytes: bytes | None = None) -> tuple[bool, str]:
     if not VK_TOKEN or not VK_GROUP_ID:
-        logger.warning("VK_TOKEN или VK_GROUP_ID не заданы")
-        return False
+        return False, "VK_TOKEN или VK_GROUP_ID не заданы"
     try:
         attachments = ""
         if photo_bytes and VK_USER_TOKEN:
@@ -153,7 +152,10 @@ async def _vk_post(text: str, photo_bytes: bytes | None = None) -> bool:
                     "https://api.vk.com/method/photos.getWallUploadServer",
                     params={"group_id": VK_GROUP_ID, "access_token": VK_USER_TOKEN, "v": "5.131"},
                 )
-                upload_url = r.json()["response"]["upload_url"]
+                rj = r.json()
+                if "error" in rj:
+                    return False, f"photos.getWallUploadServer: {rj['error'].get('error_msg', rj['error'])}"
+                upload_url = rj["response"]["upload_url"]
                 up = await cl.post(upload_url, files={"photo": ("photo.jpg", photo_bytes, "image/jpeg")})
                 res = up.json()
                 sv = await cl.post(
@@ -164,7 +166,10 @@ async def _vk_post(text: str, photo_bytes: bytes | None = None) -> bool:
                         "access_token": VK_USER_TOKEN, "v": "5.131",
                     },
                 )
-                p = sv.json()["response"][0]
+                svj = sv.json()
+                if "error" in svj:
+                    return False, f"photos.saveWallPhoto: {svj['error'].get('error_msg', svj['error'])}"
+                p = svj["response"][0]
                 attachments = f"photo{p['owner_id']}_{p['id']}"
 
         async with httpx.AsyncClient(timeout=30) as cl:
@@ -181,12 +186,14 @@ async def _vk_post(text: str, photo_bytes: bytes | None = None) -> bool:
             )
             result = r.json()
             if "error" in result:
-                logger.error(f"VK wall.post error: {result['error']}")
-                return False
-            return True
+                err = result["error"]
+                msg = f"wall.post ошибка {err.get('error_code','?')}: {err.get('error_msg','?')}"
+                logger.error(f"VK {msg}")
+                return False, msg
+            return True, ""
     except Exception as e:
         logger.error(f"VK post error: {e}")
-        return False
+        return False, str(e)
 
 
 async def _vk_clip(video_path: str) -> bool:
@@ -252,7 +259,8 @@ async def _publish_any(bot: Bot, post_id: int, platform: str, text: str,
             logger.error(f"TG publish error post {post_id}: {e}")
             ok = False
     if platform in ("post_vk", "post_both"):
-        if not await _vk_post(text, photo_bytes):
+        vk_ok, _ = await _vk_post(text, photo_bytes)
+        if not vk_ok:
             ok = False
     return ok
 
@@ -747,12 +755,18 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 ok_tg = False
                 await ctx.bot.send_message(uid, f"Ошибка TG: {e}")
+        vk_err = ""
         if platform in ("vk", "both"):
-            ok_vk = await _vk_post(text, photo)
+            ok_vk, vk_err = await _vk_post(text, photo)
         db_platform = {"tg": "post_tg", "vk": "post_vk", "both": "post_both"}.get(platform, "post_tg")
         post_id = save_post(db_platform, text, photo, scheduled_at=None)
         mark_post_published(post_id)
-        msg = "✅ Опубликовано!" if (ok_tg and ok_vk) else "⚠️ Частично опубликовано."
+        if ok_tg and ok_vk:
+            msg = "✅ Опубликовано!"
+        elif vk_err:
+            msg = f"⚠️ Ошибка VK: {vk_err}"
+        else:
+            msg = "⚠️ Частично опубликовано."
         await q.edit_message_text(msg, reply_markup=_main_keyboard())
 
     elif data.startswith("pub_sched_"):
