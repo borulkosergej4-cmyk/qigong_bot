@@ -139,7 +139,8 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if is_group:
         if msg.forward_from_chat or (msg.from_user and msg.from_user.is_bot):
             return
-        bot_username = (await ctx.bot.get_me()).username
+        bot_me = await ctx.bot.get_me()
+        bot_username = bot_me.username
         is_mentioned = f"@{bot_username}" in text
         is_reply_to_bot = (
             msg.reply_to_message and
@@ -149,7 +150,17 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         has_question = "?" in text
         if not (is_mentioned or is_reply_to_bot or has_question):
             return
-        text = text.replace(f"@{bot_username}", "").strip()
+        # В группе — переводим в личку
+        await msg.reply_text(
+            "Отвечу подробнее в личных сообщениях.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    "Написать Конфуцию",
+                    url=f"https://t.me/{bot_username}",
+                )
+            ]]),
+        )
+        return
 
     await ctx.bot.send_chat_action(update.effective_chat.id, "typing")
 
@@ -185,9 +196,6 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # ── Обычный диалог с Конфуцием ────────────────────────────────────────────
     reply = await _agent.ask(uid, text)
-
-    if is_group:
-        await msg.reply_text(reply)
     else:
         await msg.reply_text(reply, reply_markup=_main_keyboard())
 
