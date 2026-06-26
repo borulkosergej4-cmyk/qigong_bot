@@ -109,10 +109,10 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     elif data == "subscriptions":
         await q.edit_message_text(
-            "Онлайн-занятия и материалы — на Boosty.\n"
-            "Поддержать канал — через VK Донат.",
+            "Boosty — онлайн-занятия с Сергеем, видеоуроки и материалы для подписчиков.\n\n"
+            "VK Донат — поддержать канал, подписки с доступом к видеоурокам.",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Boosty — онлайн-занятия", url="https://boosty.to/s.borulko")],
+                [InlineKeyboardButton("Boosty — онлайн-занятия и видеоуроки", url="https://boosty.to/s.borulko")],
                 [InlineKeyboardButton("VK Донат — поддержать канал", url="https://vk.com/donut/club162151764")],
                 [InlineKeyboardButton("◀ Назад", callback_data="back_main")],
             ]),
