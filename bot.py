@@ -141,25 +141,19 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return
         bot_me = await ctx.bot.get_me()
         bot_username = bot_me.username
-        is_mentioned = f"@{bot_username}" in text
-        is_reply_to_bot = (
-            msg.reply_to_message and
-            msg.reply_to_message.from_user and
-            msg.reply_to_message.from_user.id == ctx.bot.id
-        )
-        has_question = "?" in text
-        if not (is_mentioned or is_reply_to_bot or has_question):
-            return
-        # В группе — переводим в личку
-        await msg.reply_text(
-            "Отвечу подробнее в личных сообщениях.",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton(
-                    "Написать Конфуцию",
-                    url=f"https://t.me/{bot_username}",
-                )
-            ]]),
-        )
+        # В группе — на любое сообщение от живого пользователя переводим в личку
+        try:
+            await msg.reply_text(
+                "Отвечу подробнее в личных сообщениях.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton(
+                        "Написать Конфуцию",
+                        url=f"https://t.me/{bot_username}",
+                    )
+                ]]),
+            )
+        except Exception as e:
+            logger.error(f"Ошибка ответа в группе: {e}")
         return
 
     await ctx.bot.send_chat_action(update.effective_chat.id, "typing")
