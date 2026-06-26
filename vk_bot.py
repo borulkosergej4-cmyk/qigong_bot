@@ -140,7 +140,7 @@ async def _handle(user_id: int, text: str):
             await _notify_admins(name, phone)
             _agent.clear_history(user_id)
             await _send_message(user_id,
-                f"Записал вас, {name}. Тренер свяжется с вами в ближайшее время.")
+                f"Записал вас, {name}. Сергей свяжется с вами в ближайшее время.")
             return
 
         if _wants_signup(text):

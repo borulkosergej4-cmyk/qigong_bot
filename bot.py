@@ -170,7 +170,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await _notify_admins(name, phone, "Telegram", username)
         _agent.clear_history(uid)
         await msg.reply_text(
-            f"Записал вас, {name}. Тренер свяжется с вами в ближайшее время.",
+            f"Записал вас, {name}. Сергей свяжется с вами в ближайшее время.",
             reply_markup=_main_keyboard(),
         )
         return
