@@ -916,7 +916,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         try:
             prompt = (
                 f"Создай контент-план на месяц {month} для Telegram-канала и группы ВКонтакте "
-                f"о целительном цигун и ушу. Фокус месяца: {focus or 'общее оздоровление'}. "
+                f"об оздоровительном цигун и ушу. Фокус месяца: {focus or 'общее оздоровление'}. "
                 "30 постов. Верни ТОЛЬКО JSON."
             )
             raw = await asyncio.to_thread(_generate_text, prompt, CONTENT_PLAN_SYSTEM_PROMPT)
