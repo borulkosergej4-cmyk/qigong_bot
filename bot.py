@@ -110,8 +110,9 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             msg.reply_to_message.from_user and
             msg.reply_to_message.from_user.id == ctx.bot.id
         )
-        # В группе отвечаем только на упоминания или ответы на сообщения бота
-        if not (is_mentioned or is_reply_to_bot):
+        has_question = "?" in text
+        # Отвечаем на вопросы, упоминания и ответы на сообщения бота
+        if not (is_mentioned or is_reply_to_bot or has_question):
             return
         text = text.replace(f"@{bot_username}", "").strip()
 
