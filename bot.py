@@ -190,8 +190,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # ── Обычный диалог с Конфуцием ────────────────────────────────────────────
     reply = await _agent.ask(uid, text)
-    else:
-        await msg.reply_text(reply, reply_markup=_main_keyboard())
+    await msg.reply_text(reply, reply_markup=_main_keyboard())
 
 
 def main():
