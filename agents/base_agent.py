@@ -108,6 +108,12 @@ class BaseAgent:
         history.append({"role": "assistant", "content": reply})
         return reply
 
+    @staticmethod
+    def _postprocess(text: str) -> str:
+        import re
+        text = re.sub(r"\*+", "", text)
+        return text.strip()
+
     async def _generate(self, messages: list, system: str = None) -> str:
         sys = system or self.system
 
@@ -120,7 +126,7 @@ class BaseAgent:
                     system=sys,
                     messages=messages,
                 )
-                return resp.content[0].text.strip()
+                return self._postprocess(resp.content[0].text)
             except Exception as e:
                 logger.warning(f"Claude error: {e}")
 
@@ -128,7 +134,7 @@ class BaseAgent:
         if _openrouter_client:
             for model in (_OR_MODEL, _OR_FALLBACK):
                 try:
-                    return _call_openrouter(messages, sys, model)
+                    return self._postprocess(_call_openrouter(messages, sys, model))
                 except Exception as e:
                     logger.warning(f"OpenRouter {model} error: {e}")
 
@@ -136,7 +142,7 @@ class BaseAgent:
         if _groq_client:
             for model in (_GROQ_MODEL, _GROQ_FALLBACK):
                 try:
-                    return _call_groq(messages, sys, model)
+                    return self._postprocess(_call_groq(messages, sys, model))
                 except Exception as e:
                     logger.warning(f"Groq {model} error: {e}")
 
