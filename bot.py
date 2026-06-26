@@ -87,14 +87,42 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    msg = update.message
+    if not msg:
+        return
+
     uid = update.effective_user.id
-    text = (update.message.text or "").strip()
+    text = (msg.text or "").strip()
     if not text:
         return
 
+    chat_type = update.effective_chat.type  # 'private', 'group', 'supergroup'
+    is_group = chat_type in ("group", "supergroup")
+
+    if is_group:
+        # Пропускаем пересланные посты канала и сообщения ботов
+        if msg.forward_from_chat or (msg.from_user and msg.from_user.is_bot):
+            return
+        bot_username = (await ctx.bot.get_me()).username
+        is_mentioned = f"@{bot_username}" in text
+        is_reply_to_bot = (
+            msg.reply_to_message and
+            msg.reply_to_message.from_user and
+            msg.reply_to_message.from_user.id == ctx.bot.id
+        )
+        # В группе отвечаем только на упоминания или ответы на сообщения бота
+        if not (is_mentioned or is_reply_to_bot):
+            return
+        text = text.replace(f"@{bot_username}", "").strip()
+
     await ctx.bot.send_chat_action(update.effective_chat.id, "typing")
     reply = await _agent.ask(uid, text)
-    await update.message.reply_text(reply, reply_markup=_main_keyboard())
+
+    if is_group:
+        # В группе отвечаем без кнопок, цитируя сообщение пользователя
+        await msg.reply_text(reply)
+    else:
+        await msg.reply_text(reply, reply_markup=_main_keyboard())
 
 
 def main():
