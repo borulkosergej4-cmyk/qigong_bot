@@ -48,7 +48,13 @@ async def _poll():
             f"{_VK_API}/groups.getLongPollServer",
             params={"group_id": VK_GROUP_ID, "access_token": VK_TOKEN, "v": _VK_VERSION},
         )
-        data = r.json()["response"]
+        rj = r.json()
+        if "error" in rj:
+            err = rj["error"]
+            raise RuntimeError(
+                f"VK getLongPollServer ошибка {err.get('error_code')}: {err.get('error_msg')}"
+            )
+        data = rj["response"]
         server, key, ts = data["server"], data["key"], data["ts"]
 
     logger.info("VK long poll запущен")
