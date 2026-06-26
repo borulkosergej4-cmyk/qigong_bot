@@ -42,6 +42,7 @@ from data.database import (
     save_content_plan, get_subscription_links, add_subscription_link,
     delete_subscription_link, save_bg_video, get_bg_videos, delete_bg_video,
     save_bg_audio, get_bg_audios, delete_bg_audio, save_logo, get_logo,
+    save_post_photo, get_post_photos, delete_post_photo,
 )
 from data.knowledge import CONTENT_PLAN_SYSTEM_PROMPT, POST_SYSTEM_PROMPT
 from py_render import (
@@ -364,6 +365,15 @@ async def _restore_media():
     except Exception as e:
         logger.warning(f"Ошибка восстановления логотипа: {e}")
 
+    try:
+        for photo_id, name, data in get_post_photos():
+            p = PHOTOS_DIR / name
+            if not p.exists():
+                p.write_bytes(bytes(data))
+        logger.info("Фото для постов восстановлены")
+    except Exception as e:
+        logger.warning(f"Ошибка восстановления фото: {e}")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Вспомогательные клавиатуры
@@ -657,19 +667,23 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif data == "media_menu":
         videos = list(VIDEOS_DIR.glob("*.mp4"))
         audios = list(AUDIO_DIR.glob("*.mp3")) + list(AUDIO_DIR.glob("*.aac"))
+        photos = list(PHOTOS_DIR.glob("*.jpg")) + list(PHOTOS_DIR.glob("*.png"))
         has_logo = LOGO_PATH.exists()
         await q.edit_message_text(
             f"Медиа-библиотека:\n"
+            f"🖼 Фото для постов: {len(photos)}\n"
             f"🎥 Видео-фоны: {len(videos)}\n"
             f"🎵 Аудио-треки: {len(audios)}\n"
-            f"🖼 Логотип: {'есть' if has_logo else 'не загружен'}",
+            f"🏷 Логотип: {'есть' if has_logo else 'не загружен'}",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📤 Загрузить видео-фон",    callback_data="upload_video")],
-                [InlineKeyboardButton("📤 Загрузить аудио-трек",   callback_data="upload_audio")],
-                [InlineKeyboardButton("📤 Загрузить логотип",      callback_data="upload_logo")],
-                [InlineKeyboardButton("🗑 Удалить видео-фон",      callback_data="delete_video_menu")],
-                [InlineKeyboardButton("🗑 Удалить аудио-трек",     callback_data="delete_audio_menu")],
-                [InlineKeyboardButton("◀ Назад",                   callback_data="main_menu")],
+                [InlineKeyboardButton("📤 Загрузить фото для постов", callback_data="upload_post_photo")],
+                [InlineKeyboardButton("📤 Загрузить видео-фон",       callback_data="upload_video")],
+                [InlineKeyboardButton("📤 Загрузить аудио-трек",      callback_data="upload_audio")],
+                [InlineKeyboardButton("📤 Загрузить логотип",         callback_data="upload_logo")],
+                [InlineKeyboardButton("🗑 Удалить фото",              callback_data="delete_photo_menu")],
+                [InlineKeyboardButton("🗑 Удалить видео-фон",         callback_data="delete_video_menu")],
+                [InlineKeyboardButton("🗑 Удалить аудио-трек",        callback_data="delete_audio_menu")],
+                [InlineKeyboardButton("◀ Назад",                      callback_data="main_menu")],
             ]),
         )
 
@@ -687,6 +701,38 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         USER_STATE[uid] = "awaiting_logo"
         await q.edit_message_text("Отправь фото логотипа (PNG или JPEG).",
                                   reply_markup=_back_keyboard("media_menu"))
+
+    elif data == "upload_post_photo":
+        USER_STATE[uid] = "awaiting_post_photo"
+        await q.edit_message_text(
+            "Отправь фото (JPEG или PNG) для использования в постах.\n"
+            "Можно загрузить несколько — бот будет выбирать случайное.",
+            reply_markup=_back_keyboard("media_menu"),
+        )
+
+    elif data == "delete_photo_menu":
+        rows = get_post_photos()
+        if not rows:
+            await q.edit_message_text("Нет загруженных фото.",
+                                      reply_markup=_back_keyboard("media_menu"))
+            return
+        btns = [[InlineKeyboardButton(f"🗑 {name}", callback_data=f"del_photo_{pid}")]
+                for pid, name, _ in rows]
+        btns.append([InlineKeyboardButton("◀ Назад", callback_data="media_menu")])
+        await q.edit_message_text("Выбери фото для удаления:",
+                                  reply_markup=InlineKeyboardMarkup(btns))
+
+    elif data.startswith("del_photo_"):
+        photo_id = int(data.replace("del_photo_", ""))
+        rows = get_post_photos()
+        for pid, name, _ in rows:
+            if pid == photo_id:
+                delete_post_photo(photo_id)
+                p = PHOTOS_DIR / name
+                if p.exists():
+                    p.unlink()
+                break
+        await q.edit_message_text("✅ Фото удалено.", reply_markup=_back_keyboard("media_menu"))
 
     elif data == "delete_video_menu":
         rows = get_bg_videos()
@@ -1047,6 +1093,32 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         USER_STATE.pop(uid, None)
         await update.message.reply_text(
             "✅ Логотип обновлён.", reply_markup=_main_keyboard()
+        )
+
+    # ── Загрузка фото для постов ──────────────────────────────────────────────
+    elif state == "awaiting_post_photo":
+        photo = update.message.photo
+        doc   = update.message.document
+        if photo:
+            file = await photo[-1].get_file()
+            fname = f"photo_{file.file_unique_id}.jpg"
+        elif doc:
+            file = await doc.get_file()
+            fname = getattr(doc, "file_name", None) or f"photo_{file.file_unique_id}.jpg"
+        else:
+            await update.message.reply_text("Отправь фото (JPEG или PNG).")
+            return
+        buf = io.BytesIO()
+        await file.download_to_memory(buf)
+        data = buf.getvalue()
+        save_post_photo(fname, data)
+        p = PHOTOS_DIR / fname
+        p.write_bytes(data)
+        photos_total = len(list(PHOTOS_DIR.glob("*.jpg")) + list(PHOTOS_DIR.glob("*.png")))
+        await update.message.reply_text(
+            f"✅ Фото загружено. Всего в библиотеке: {photos_total}.\n"
+            "Можешь отправить ещё или вернись в меню.",
+            reply_markup=_back_keyboard("media_menu"),
         )
 
 

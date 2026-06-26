@@ -72,6 +72,15 @@ def init_db():
                     updated_at TIMESTAMP DEFAULT NOW()
                 )
             """)
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS saved_post_photos (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    data BYTEA NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
         conn.commit()
 
 
@@ -254,3 +263,29 @@ def get_logo() -> bytes | None:
             cur.execute("SELECT data FROM bot_config WHERE key='logo'")
             row = cur.fetchone()
             return bytes(row[0]) if row else None
+
+
+# ── Фото для постов ───────────────────────────────────────────────────────────
+
+def save_post_photo(name: str, data: bytes):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO saved_post_photos (name, data) VALUES (%s, %s)",
+                (name, data),
+            )
+        conn.commit()
+
+
+def get_post_photos():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, name, data FROM saved_post_photos ORDER BY created_at")
+            return cur.fetchall()
+
+
+def delete_post_photo(photo_id: int):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM saved_post_photos WHERE id=%s", (photo_id,))
+        conn.commit()
