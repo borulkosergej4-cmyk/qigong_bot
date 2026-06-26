@@ -136,7 +136,10 @@ async def _handle(user_id: int, text: str):
         if state and state["step"] == "phone":
             name = _signup.pop(user_id)["name"]
             phone = text
-            save_booking(name, phone, "vk", str(user_id))
+            try:
+                await asyncio.to_thread(save_booking, name, phone, "vk", str(user_id))
+            except Exception as e:
+                logger.error(f"Ошибка сохранения заявки VK: {e}")
             await _notify_admins(name, phone)
             _agent.clear_history(user_id)
             await _send_message(user_id,

@@ -166,7 +166,10 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         name = _signup.pop(uid)["name"]
         phone = text
         username = update.effective_user.username or ""
-        save_booking(name, phone, "telegram", username)
+        try:
+            await asyncio.to_thread(save_booking, name, phone, "telegram", username)
+        except Exception as e:
+            logger.error(f"Ошибка сохранения заявки: {e}")
         await _notify_admins(name, phone, "Telegram", username)
         _agent.clear_history(uid)
         await msg.reply_text(
