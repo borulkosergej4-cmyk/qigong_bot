@@ -73,25 +73,48 @@ class BaseAgent:
     def clear_history(self, user_id: int):
         _histories.pop(user_id, None)
 
+    _SCHEDULE_KEYWORDS = (
+        "расписани", "занятия", "занятие", "тренировк", "записат",
+        "когда", "во сколько", "в какое время", "ближайш", "сегодня",
+        "завтра", "неделя", "онлайн", "офлайн", "прийти",
+    )
+
     async def ask(self, user_id: int, text: str) -> str:
         history = self._history(user_id)
         history.append({"role": "user", "content": text})
         if len(history) > _MAX_HISTORY:
             history[:] = history[-_MAX_HISTORY:]
 
-        reply = await self._generate(history)
+        system = self.system
+        if any(kw in text.lower() for kw in self._SCHEDULE_KEYWORDS):
+            try:
+                import asyncio
+                from data.mobifitness import get_schedule_text, get_today_info
+                schedule = await asyncio.to_thread(get_schedule_text)
+                today = get_today_info()
+                system = (
+                    f"{self.system}\n\n"
+                    f"Сейчас: {today}\n\n"
+                    f"Актуальное расписание занятий:\n{schedule}"
+                )
+            except Exception as e:
+                logger.warning(f"Не удалось получить расписание: {e}")
+
+        reply = await self._generate(history, system=system)
 
         history.append({"role": "assistant", "content": reply})
         return reply
 
-    async def _generate(self, messages: list) -> str:
+    async def _generate(self, messages: list, system: str = None) -> str:
+        sys = system or self.system
+
         # 1. Claude Haiku
         if _anthropic_client:
             try:
                 resp = _anthropic_client.messages.create(
                     model=CLAUDE_MODEL,
                     max_tokens=600,
-                    system=self.system,
+                    system=sys,
                     messages=messages,
                 )
                 return resp.content[0].text.strip()
@@ -102,7 +125,7 @@ class BaseAgent:
         if _openrouter_client:
             for model in (_OR_MODEL, _OR_FALLBACK):
                 try:
-                    return _call_openrouter(messages, self.system, model)
+                    return _call_openrouter(messages, sys, model)
                 except Exception as e:
                     logger.warning(f"OpenRouter {model} error: {e}")
 
@@ -110,7 +133,7 @@ class BaseAgent:
         if _groq_client:
             for model in (_GROQ_MODEL, _GROQ_FALLBACK):
                 try:
-                    return _call_groq(messages, self.system, model)
+                    return _call_groq(messages, sys, model)
                 except Exception as e:
                     logger.warning(f"Groq {model} error: {e}")
 
