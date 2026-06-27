@@ -94,24 +94,58 @@ class BaseAgent:
             history[:] = history[-_MAX_HISTORY:]
 
         system = self.system
-        if any(kw in text.lower() for kw in self._SCHEDULE_KEYWORDS):
+
+        # Определяем, нужно ли подтянуть расписание
+        text_lower = text.lower().strip()
+        _needs_schedule = any(kw in text_lower for kw in self._SCHEDULE_KEYWORDS)
+        # Короткий утвердительный ответ после сообщения о расписании
+        if not _needs_schedule and text_lower in ("да", "ок", "хочу", "покажи", "конечно", "давай", "да,", "да.", "ладно"):
+            _last_bot = next(
+                (m["content"] for m in reversed(history[:-1]) if m["role"] == "assistant"), ""
+            )
+            if any(kw in _last_bot.lower() for kw in ("расписани", "занятия", "занятие", "записат", "когда", "время")):
+                _needs_schedule = True
+
+        if _needs_schedule:
             try:
                 import asyncio
                 from data.mobifitness import get_schedule_text, get_today_info
                 schedule = await asyncio.to_thread(get_schedule_text)
                 today = get_today_info()
-                system = (
-                    f"{self.system}\n\n"
-                    f"Сейчас: {today}\n\n"
-                    f"РАСПИСАНИЕ ЗАНЯТИЙ СЕРГЕЯ (только его занятия, другие тренеры не показаны):\n{schedule}\n\n"
-                    f"Называй только те занятия и даты, которые есть в этом расписании. Не придумывай."
-                )
+                _no_data = any(p in schedule for p in (
+                    "Нет предстоящих", "не загружено", "временно недоступно", "недоступно"
+                ))
+                if _no_data:
+                    system = (
+                        f"{self.system}\n\n"
+                        f"Сейчас: {today}\n\n"
+                        f"‼️ РАСПИСАНИЕ СЕЙЧАС НЕДОСТУПНО — API вернул пустой ответ.\n"
+                        f"АБСОЛЮТНЫЙ ЗАПРЕТ: не называть никаких дней, времени, дат и мест занятий.\n"
+                        f"Единственно допустимый ответ по расписанию: "
+                        f"«Актуальное расписание уточните у Сергея в канале @baguazhangspb — "
+                        f"там всегда есть свежая информация.»\n"
+                        f"Никаких «обычно», «как правило», «примерно» — это тоже запрещено."
+                    )
+                else:
+                    system = (
+                        f"{self.system}\n\n"
+                        f"Сейчас: {today}\n\n"
+                        f"РАСПИСАНИЕ ЗАНЯТИЙ СЕРГЕЯ (актуальные данные из системы):\n{schedule}\n\n"
+                        f"ВАЖНО: называй ТОЛЬКО занятия из этого списка. "
+                        f"Не добавляй занятия, которых нет выше. Не придумывай дни, время и места."
+                    )
             except Exception as e:
                 logger.warning(f"Не удалось получить расписание: {e}")
                 from datetime import datetime, timedelta, timezone
                 MOSCOW_TZ = timezone(timedelta(hours=3))
                 now = datetime.now(MOSCOW_TZ)
-                system = f"{self.system}\n\nСейчас: {now.strftime('%d.%m.%Y %H:%M')} МСК"
+                system = (
+                    f"{self.system}\n\n"
+                    f"Сейчас: {now.strftime('%d.%m.%Y %H:%M')} МСК\n\n"
+                    f"‼️ РАСПИСАНИЕ ВРЕМЕННО НЕДОСТУПНО. "
+                    f"ЗАПРЕЩЕНО называть время, дни и места занятий. "
+                    f"Скажи пользователю: «Расписание уточните у Сергея в канале @baguazhangspb.»"
+                )
 
         reply = await self._generate(history, system=system)
 
