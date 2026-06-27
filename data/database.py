@@ -36,6 +36,9 @@ def init_db():
                     created_at TIMESTAMP DEFAULT NOW()
                 )
             """)
+            cur.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS content_plan_month_idx ON content_plan (month)"
+            )
 
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS subscription_links (
@@ -144,15 +147,18 @@ def get_posts_history(limit: int = 50):
 
 # ── Контент-план ──────────────────────────────────────────────────────────────
 
-def save_content_plan(month: str, items: str):
+def save_content_plan(month: str, items: str) -> int:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO content_plan (month, items) VALUES (%s, %s) "
-                "ON CONFLICT DO NOTHING",
+                "ON CONFLICT (month) DO UPDATE SET items=EXCLUDED.items, approved=FALSE "
+                "RETURNING id",
                 (month, items),
             )
+            row = cur.fetchone()
         conn.commit()
+    return row[0] if row else 0
 
 
 def get_content_plan(month: str):

@@ -923,7 +923,9 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             start = raw.find("[")
             end   = raw.rfind("]") + 1
             items = json.loads(raw[start:end]) if start >= 0 else []
-            save_content_plan(month, json.dumps(items, ensure_ascii=False))
+            plan_id = await asyncio.to_thread(
+                save_content_plan, month, json.dumps(items, ensure_ascii=False)
+            )
             CONTENT_PLANS[uid] = items
             lines = [f"✅ Контент-план на {month} создан ({len(items)} постов):\n"]
             for it in items[:10]:
@@ -932,7 +934,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(
                 "\n".join(lines),
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ Утвердить", callback_data=f"cp_approve_new")],
+                    [InlineKeyboardButton("✅ Утвердить", callback_data=f"cp_approve_{plan_id}")],
                     [InlineKeyboardButton("◀ Меню",      callback_data="main_menu")],
                 ]),
             )
