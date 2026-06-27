@@ -705,53 +705,84 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "cp_view":
-        month = datetime.now().strftime("%Y-%m")
-        plan = get_content_plan(month)
-        if not plan:
-            await q.edit_message_text(
-                "Плана на этот месяц нет. Сначала создай его.",
-                reply_markup=_back_keyboard("content_plan"),
-            )
-            return
-        plan_id, items_json, approved = plan
-        if isinstance(items_json, list):
-            items = items_json
-        else:
-            try:
-                items = json.loads(items_json)
-            except Exception:
+        try:
+            month = datetime.now().strftime("%Y-%m")
+            plan = await asyncio.to_thread(get_content_plan, month)
+            if not plan:
+                await q.edit_message_text(
+                    "Плана на этот месяц нет. Сначала создай его.",
+                    reply_markup=_back_keyboard("content_plan"),
+                )
+                return
+            plan_id, items_json, approved = plan
+            if isinstance(items_json, list):
+                items = items_json
+            elif isinstance(items_json, str):
+                try:
+                    items = json.loads(items_json)
+                except Exception:
+                    items = []
+            else:
                 items = []
-        CONTENT_PLANS[uid] = {"items": items, "plan_id": plan_id}
+            CONTENT_PLANS[uid] = {"items": items, "plan_id": plan_id}
 
-        if approved:
-            # Утверждён — показываем кнопки для генерации постов
-            await _show_plan_items(q, uid, plan_id, items)
-        else:
-            # Ещё не утверждён — показываем текст и кнопку утверждения
-            lines = [f"⏳ Контент-план {month}:\n"]
-            for it in items[:20]:
-                lines.append(f"День {it.get('day','?')}: {it.get('topic','?')} [{it.get('format','?')}]")
+            if approved:
+                await _show_plan_items(q, uid, plan_id, items)
+            else:
+                # Показываем текст плана и кнопку утверждения
+                lines = [f"⏳ Контент-план {month} (не утверждён):\n"]
+                for it in items[:25]:
+                    day = it.get("day", "?")
+                    topic = it.get("topic", "?")[:50]
+                    fmt = it.get("format", "?")
+                    lines.append(f"День {day}: {topic} [{fmt}]")
+                text = "\n".join(lines)
+                # Telegram ограничение 4096 символов
+                if len(text) > 4000:
+                    text = text[:4000] + "\n…"
+                await q.edit_message_text(
+                    text,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("✅ Утвердить план", callback_data=f"cp_approve_{plan_id}")],
+                        [InlineKeyboardButton("🔄 Создать новый",  callback_data="cp_generate")],
+                        [InlineKeyboardButton("◀ Назад",           callback_data="content_plan")],
+                    ]),
+                )
+        except Exception as e:
+            logger.error(f"cp_view error: {e}", exc_info=True)
             await q.edit_message_text(
-                "\n".join(lines),
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ Утвердить план", callback_data=f"cp_approve_{plan_id}")],
-                    [InlineKeyboardButton("🔄 Создать новый",  callback_data="cp_generate")],
-                    [InlineKeyboardButton("◀ Назад",           callback_data="content_plan")],
-                ]),
+                f"❌ Ошибка загрузки плана: {e}",
+                reply_markup=_back_keyboard("content_plan"),
             )
 
     elif data.startswith("cp_approve_"):
-        plan_id = int(data.replace("cp_approve_", ""))
-        approve_content_plan(plan_id)
-        cached = CONTENT_PLANS.get(uid, {})
-        items = cached.get("items")
-        if not items:
-            plan = get_content_plan(datetime.now().strftime("%Y-%m"))
-            if plan:
-                _, items_json, _ = plan
-                items = items_json if isinstance(items_json, list) else json.loads(items_json or "[]")
-                CONTENT_PLANS[uid] = {"items": items, "plan_id": plan_id}
-        await _show_plan_items(q, uid, plan_id, items or [])
+        try:
+            plan_id = int(data.replace("cp_approve_", ""))
+            await asyncio.to_thread(approve_content_plan, plan_id)
+            # Берём пункты из кеша или из БД
+            cached = CONTENT_PLANS.get(uid, {})
+            items = cached.get("items")
+            if not items:
+                month = datetime.now().strftime("%Y-%m")
+                plan = await asyncio.to_thread(get_content_plan, month)
+                if plan:
+                    _, items_json, _ = plan
+                    if isinstance(items_json, list):
+                        items = items_json
+                    elif isinstance(items_json, str):
+                        items = json.loads(items_json)
+                    else:
+                        items = []
+                    CONTENT_PLANS[uid] = {"items": items, "plan_id": plan_id}
+                else:
+                    items = []
+            await _show_plan_items(q, uid, plan_id, items)
+        except Exception as e:
+            logger.error(f"cp_approve_ error: {e}", exc_info=True)
+            await q.edit_message_text(
+                f"❌ Ошибка при утверждении плана: {e}",
+                reply_markup=_back_keyboard("content_plan"),
+            )
 
     elif data.startswith("plan_item_"):
         # Пользователь выбрал конкретный пункт плана
@@ -764,12 +795,17 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         cached = CONTENT_PLANS.get(uid, {})
         items = cached.get("items")
         if not items:
-            plan = get_content_plan(datetime.now().strftime("%Y-%m"))
+            plan = await asyncio.to_thread(get_content_plan, datetime.now().strftime("%Y-%m"))
             if not plan:
                 await q.message.reply_text("План не найден. Создай новый.", reply_markup=_main_keyboard())
                 return
             _, items_json, _ = plan
-            items = items_json if isinstance(items_json, list) else json.loads(items_json or "[]")
+            if isinstance(items_json, list):
+                items = items_json
+            elif isinstance(items_json, str):
+                items = json.loads(items_json)
+            else:
+                items = []
             CONTENT_PLANS[uid] = {"items": items, "plan_id": plan_id}
         if idx >= len(items):
             await q.message.reply_text("Элемент не найден. Открой план заново.", reply_markup=_main_keyboard())
@@ -800,12 +836,17 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         cached = CONTENT_PLANS.get(uid, {})
         items = cached.get("items")
         if not items:
-            plan = get_content_plan(datetime.now().strftime("%Y-%m"))
+            plan = await asyncio.to_thread(get_content_plan, datetime.now().strftime("%Y-%m"))
             if not plan:
                 await q.message.reply_text("План не найден. Создай новый.", reply_markup=_main_keyboard())
                 return
             _, items_json, _ = plan
-            items = items_json if isinstance(items_json, list) else json.loads(items_json or "[]")
+            if isinstance(items_json, list):
+                items = items_json
+            elif isinstance(items_json, str):
+                items = json.loads(items_json)
+            else:
+                items = []
             CONTENT_PLANS[uid] = {"items": items, "plan_id": plan_id}
         if idx >= len(items):
             await q.message.reply_text("Элемент не найден.", reply_markup=_main_keyboard())
