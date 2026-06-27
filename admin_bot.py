@@ -4,6 +4,7 @@
 """
 import asyncio
 import io
+from io import BytesIO
 import json
 import logging
 import os
@@ -401,6 +402,106 @@ def _back_keyboard(cb: str = "main_menu"):
     return InlineKeyboardMarkup([[InlineKeyboardButton("◀ Назад", callback_data=cb)]])
 
 
+def _publish_keyboard(platform: str):
+    """Кнопки публикации после генерации поста."""
+    label = {"tg": "Telegram", "vk": "ВКонтакте", "both": "обе платформы"}.get(platform, platform)
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(f"✅ Опубликовать ({label})", callback_data=f"pub_now_{platform}")],
+        [InlineKeyboardButton("⏰ По расписанию",           callback_data=f"pub_sched_{platform}")],
+        [InlineKeyboardButton("✏️ Редактировать текст",    callback_data=f"edit_text_{platform}")],
+        [InlineKeyboardButton("🔄 Переделать",              callback_data="pub_regenerate")],
+        [InlineKeyboardButton("◀ Главное меню",            callback_data="main_menu")],
+    ])
+
+
+async def _show_plan_items(q, uid: int, plan_id: int, items: list):
+    """Показывает пункты контент-плана с кнопками для генерации."""
+    _FORMAT_ICON = {
+        "анонс":      "📢",
+        "совет":      "💡",
+        "мотивация":  "🔥",
+        "история":    "📖",
+        "провокация": "⚡",
+        "польза":     "🌿",
+        "мини-практика": "🎯",
+        "сравнение":  "⚖️",
+    }
+    buttons = []
+    for i, item in enumerate(items):
+        icon = _FORMAT_ICON.get(item.get("format", "").lower(), "📝")
+        day = item.get("day", "")
+        topic = item.get("topic", "")[:40]
+        label = f"{icon} День {day} — {topic}"
+        buttons.append([InlineKeyboardButton(label, callback_data=f"plan_item_{plan_id}_{i}")])
+    buttons.append([InlineKeyboardButton("🔄 Создать новый план", callback_data="cp_generate")])
+    buttons.append([InlineKeyboardButton("◀ Главное меню",        callback_data="main_menu")])
+    await q.edit_message_text(
+        "📅 Контент-план утверждён. Выбери пост для генерации:",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def _generate_plan_post(q, uid: int, item: dict, platform: str):
+    """Генерирует пост по пункту контент-плана и показывает превью."""
+    topic = item.get("topic", "")
+    fmt = item.get("format", "пост")
+    day = item.get("day", "")
+    plat_label = {"tg": "Telegram", "vk": "ВКонтакте", "both": "обе платформы"}.get(platform, platform)
+
+    _fmt_hints = {
+        "анонс":         "анонс события или занятия — что будет, когда, почему стоит прийти",
+        "совет":         "конкретный совет — механизм + польза + что делать прямо сейчас",
+        "мотивация":     "мотивирующий пост от первого лица — маленькая история или инсайт",
+        "история":       "история: до → после. Конкретный человек, конкретный результат",
+        "провокация":    "провокационный тезис + аргумент + неожиданный вывод",
+        "польза":        "полезный разбор: один приём, механизм действия, как применить",
+        "мини-практика": "одно упражнение которое можно сделать прямо сейчас — шаги + эффект",
+        "сравнение":     "два подхода или два упражнения — коротко и по делу",
+    }
+    hint = _fmt_hints.get(fmt.lower(), fmt)
+    length_hint = "до 900 символов" if platform == "tg" else "600–1000 символов"
+
+    user_prompt = (
+        f"Тема поста: {topic}\n"
+        f"День в контент-плане: {day}\n"
+        f"Формат: {hint}\n\n"
+        f"Структура: сильный крючок (1–2 строки) → 2–3 абзаца → призыв к действию.\n"
+        f"Пустая строка между абзацами. Каждый абзац начинается с эмодзи. "
+        f"Длина: {length_hint}. Только текст поста, без пояснений."
+    )
+
+    await q.edit_message_text(f"⏳ Генерирую пост для {plat_label}…")
+
+    try:
+        text = await asyncio.to_thread(_generate_text, user_prompt, POST_SYSTEM_PROMPT, 1500)
+        photo = await _get_photo("qigong tai chi meditation")
+
+        db_platform = {"tg": "post_tg", "vk": "post_vk", "both": "post_both"}.get(platform, "post_tg")
+        post_id = save_post(db_platform, text, photo, scheduled_at=None)
+
+        USER_GENERATED[uid] = {
+            "post_text": text,
+            "photo_bytes": photo,
+            "platform": platform,
+            "post_id": post_id,
+        }
+        USER_STATE.pop(uid, None)
+
+        caption = text + f"\n\n─────────────────\n📤 Опубликовать в {plat_label}?"
+        kb = _publish_keyboard(platform)
+        if photo and len(caption) <= 1024:
+            await q.message.reply_photo(photo=BytesIO(photo), caption=caption, reply_markup=kb)
+        elif photo:
+            await q.message.reply_photo(photo=BytesIO(photo))
+            await q.message.reply_text(text + f"\n\n─────────────────\n📤 Опубликовать в {plat_label}?", reply_markup=kb)
+        else:
+            await q.message.reply_text(text + f"\n\n─────────────────\n📤 Опубликовать в {plat_label}?", reply_markup=kb)
+
+    except Exception as e:
+        logger.error(f"_generate_plan_post error: {e}", exc_info=True)
+        await q.message.reply_text(f"❌ Ошибка генерации: {e}", reply_markup=_main_keyboard())
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Проверка доступа
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -608,7 +709,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         plan = get_content_plan(month)
         if not plan:
             await q.edit_message_text(
-                "Планa на этот месяц нет. Сначала создай его.",
+                "Плана на этот месяц нет. Сначала создай его.",
                 reply_markup=_back_keyboard("content_plan"),
             )
             return
@@ -620,19 +721,96 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 items = json.loads(items_json)
             except Exception:
                 items = []
-        lines = [f"{'✅' if approved else '⏳'} Контент-план {month}:\n"]
-        for it in items[:15]:
-            lines.append(f"День {it.get('day','?')}: {it.get('topic','?')} [{it.get('format','?')}]")
-        btns = []
-        if not approved:
-            btns.append([InlineKeyboardButton("✅ Утвердить", callback_data=f"cp_approve_{plan_id}")])
-        btns.append([InlineKeyboardButton("◀ Назад", callback_data="content_plan")])
-        await q.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(btns))
+        CONTENT_PLANS[uid] = {"items": items, "plan_id": plan_id}
+
+        if approved:
+            # Утверждён — показываем кнопки для генерации постов
+            await _show_plan_items(q, uid, plan_id, items)
+        else:
+            # Ещё не утверждён — показываем текст и кнопку утверждения
+            lines = [f"⏳ Контент-план {month}:\n"]
+            for it in items[:20]:
+                lines.append(f"День {it.get('day','?')}: {it.get('topic','?')} [{it.get('format','?')}]")
+            await q.edit_message_text(
+                "\n".join(lines),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ Утвердить план", callback_data=f"cp_approve_{plan_id}")],
+                    [InlineKeyboardButton("🔄 Создать новый",  callback_data="cp_generate")],
+                    [InlineKeyboardButton("◀ Назад",           callback_data="content_plan")],
+                ]),
+            )
 
     elif data.startswith("cp_approve_"):
         plan_id = int(data.replace("cp_approve_", ""))
         approve_content_plan(plan_id)
-        await q.edit_message_text("✅ Контент-план утверждён!", reply_markup=_main_keyboard())
+        cached = CONTENT_PLANS.get(uid, {})
+        items = cached.get("items")
+        if not items:
+            plan = get_content_plan(datetime.now().strftime("%Y-%m"))
+            if plan:
+                _, items_json, _ = plan
+                items = items_json if isinstance(items_json, list) else json.loads(items_json or "[]")
+                CONTENT_PLANS[uid] = {"items": items, "plan_id": plan_id}
+        await _show_plan_items(q, uid, plan_id, items or [])
+
+    elif data.startswith("plan_item_"):
+        # Пользователь выбрал конкретный пункт плана
+        try:
+            _, _, plan_id_s, idx_s = data.split("_", 3)
+            plan_id, idx = int(plan_id_s), int(idx_s)
+        except ValueError:
+            await q.answer("Ошибка данных")
+            return
+        cached = CONTENT_PLANS.get(uid, {})
+        items = cached.get("items")
+        if not items:
+            plan = get_content_plan(datetime.now().strftime("%Y-%m"))
+            if not plan:
+                await q.message.reply_text("План не найден. Создай новый.", reply_markup=_main_keyboard())
+                return
+            _, items_json, _ = plan
+            items = items_json if isinstance(items_json, list) else json.loads(items_json or "[]")
+            CONTENT_PLANS[uid] = {"items": items, "plan_id": plan_id}
+        if idx >= len(items):
+            await q.message.reply_text("Элемент не найден. Открой план заново.", reply_markup=_main_keyboard())
+            return
+        item = items[idx]
+        topic = item.get("topic", "—")
+        fmt = item.get("format", "—")
+        await q.edit_message_text(
+            f"📌 День {item.get('day','?')}: {topic}\nФормат: {fmt}\n\nВыбери платформу:",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✈️ Telegram",   callback_data=f"plan_gen_tg_{plan_id}_{idx}")],
+                [InlineKeyboardButton("📱 ВКонтакте", callback_data=f"plan_gen_vk_{plan_id}_{idx}")],
+                [InlineKeyboardButton("🌐 Обе",        callback_data=f"plan_gen_both_{plan_id}_{idx}")],
+                [InlineKeyboardButton("◀ К списку",     callback_data="cp_view")],
+            ]),
+        )
+
+    elif data.startswith("plan_gen_"):
+        # plan_gen_{platform}_{plan_id}_{idx}
+        try:
+            parts = data.split("_")
+            platform = parts[2]
+            plan_id = int(parts[3])
+            idx = int(parts[4])
+        except (IndexError, ValueError):
+            await q.answer("Ошибка данных")
+            return
+        cached = CONTENT_PLANS.get(uid, {})
+        items = cached.get("items")
+        if not items:
+            plan = get_content_plan(datetime.now().strftime("%Y-%m"))
+            if not plan:
+                await q.message.reply_text("План не найден. Создай новый.", reply_markup=_main_keyboard())
+                return
+            _, items_json, _ = plan
+            items = items_json if isinstance(items_json, list) else json.loads(items_json or "[]")
+            CONTENT_PLANS[uid] = {"items": items, "plan_id": plan_id}
+        if idx >= len(items):
+            await q.message.reply_text("Элемент не найден.", reply_markup=_main_keyboard())
+            return
+        await _generate_plan_post(q, uid, items[idx], platform)
 
     # ── Подписные ссылки ─────────────────────────────────────────────────────
     elif data == "subscriptions":
