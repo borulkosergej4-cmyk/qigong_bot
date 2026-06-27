@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -33,30 +34,30 @@ ADMIN_IDS = [int(x) for x in _raw_ids.split(",") if x.strip().isdigit()]
 
 _agent = BaseAgent(CONFUCIUS_PROMPT)
 
-# user_id -> {"step": "name"/"phone", "name": str, "username": str}
+# user_id -> {"step": "name"/"phone", "name": str, "username": str, "lesson": str}
 _signup: dict[int, dict] = {}
 
-_SIGNUP_KEYWORDS = (
-    "записаться", "запишите", "запиши меня", "хочу попасть",
-    "как попасть", "хочу прийти", "как записаться", "хочу записаться",
-    "хотел бы записаться", "хотела бы записаться", "можно записаться",
-    "как мне записаться", "запись к сергею", "попасть на занятие",
-    "прийти на занятие", "хочу на занятие", "запись на занятие",
+# Фразы, которые означают что агент просит имя пользователя
+_ASK_NAME_PHRASES = (
+    "как вас зовут", "как вас называть", "ваше имя", "напишите своё имя",
+    "напишите имя", "оставьте имя", "представьтесь", "как вас звать",
+    "скажите своё имя", "напишите ваше имя",
 )
 
-
-def _wants_signup(text: str) -> bool:
-    t = text.lower()
-    return any(kw in t for kw in _SIGNUP_KEYWORDS)
+# Ключевые слова вопроса о расписании — текст с ними не может быть именем
+_SCHEDULE_WORDS = (
+    "расписани", "занятия", "занятие", "когда", "во сколько", "время",
+    "где", "адрес", "место", "парк", "зал", "записаться", "записат",
+    "стоит", "цена", "сколько", "стоимость", "есть ли", "будет ли",
+    "прийти", "попасть", "приходить", "онлайн",
+)
 
 
 def _extract_lesson(uid: int) -> str:
     """Извлекает выбранное занятие из истории диалога (ищет строку с временем HH:MM)."""
-    import re
     from agents.base_agent import _histories
     history = list(_histories.get(uid, []))
     time_re = re.compile(r'\b\d{1,2}:\d{2}\b')
-    # Смотрим сообщения ассистента в обратном порядке — ищем строку с временем
     for msg in reversed(history):
         if msg.get("role") == "assistant":
             for line in msg.get("content", "").split("\n"):
@@ -68,6 +69,27 @@ def _extract_lesson(uid: int) -> str:
 def _looks_like_phone(text: str) -> bool:
     digits = sum(c.isdigit() for c in text)
     return digits >= 7
+
+
+def _looks_like_name(text: str) -> bool:
+    """Проверяет, похож ли текст на имя, а не на вопрос или фразу."""
+    t = text.lower().strip()
+    # Слишком длинно для имени
+    if len(t) > 40:
+        return False
+    # Содержит ключевые слова вопроса о расписании/занятиях
+    if any(kw in t for kw in _SCHEDULE_WORDS):
+        return False
+    # Содержит вопросительный знак
+    if "?" in t:
+        return False
+    # Содержит цифры (скорее всего вопрос или номер)
+    if re.search(r'\d', t):
+        return False
+    # Очень короткое (одна буква) — не имя
+    if len(t) < 2:
+        return False
+    return True
 
 
 async def _notify_admins(name: str, phone: str, source: str, username: str, lesson: str = ""):
@@ -105,10 +127,9 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     _signup.pop(user.id, None)
     greeting = (
         f"Здравствуйте, {user.first_name}! 👋\n\n"
-        "Я Конфуций — помогаю разобраться в практике цигун и ушу у Сергея в Санкт-Петербурге.\n\n"
+        "Я Конфуций — помогаю разобраться в практике цигун и ушу на занятиях Сергея в Санкт-Петербурге.\n\n"
         "Готов ответить на любые вопросы — о занятиях, расписании и записи. Чем могу помочь?"
     )
-    # Сохраняем приветствие в историю — чтобы AI не повторял представление
     _agent.seed(user.id, greeting)
     await update.message.reply_text("👋")
     await update.message.reply_text(greeting, reply_markup=_main_keyboard())
@@ -120,11 +141,16 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     data = q.data
 
     if data == "sign_up":
-        # Сначала показываем расписание через агента, не сразу просим контакты
         uid = update.effective_user.id
-        await q.answer()
         await ctx.bot.send_chat_action(q.message.chat_id, "typing")
         reply = await _agent.ask(uid, "Хочу записаться на занятие. Покажи ближайшее расписание.")
+        # Если агент просит имя — переходим в режим сбора контактов
+        if any(p in reply.lower() for p in _ASK_NAME_PHRASES):
+            _signup[uid] = {
+                "step": "name",
+                "username": update.effective_user.username or "",
+                "lesson": _extract_lesson(uid),
+            }
         await q.message.reply_text(reply, reply_markup=_main_keyboard())
         return
 
@@ -176,26 +202,19 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     chat_type = update.effective_chat.type
 
-    # Посты из канала — игнорируем полностью
     if chat_type == "channel":
         return
 
     is_group = chat_type in ("group", "supergroup")
-
     if is_group:
         if msg.forward_from_chat or (msg.from_user and msg.from_user.is_bot):
             return
         bot_me = await ctx.bot.get_me()
-        bot_username = bot_me.username
-        # В группе — на любое сообщение от живого пользователя переводим в личку
         try:
             await msg.reply_text(
                 "Отвечу подробнее в личных сообщениях.",
                 reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton(
-                        "Написать Конфуцию",
-                        url=f"https://t.me/{bot_username}",
-                    )
+                    InlineKeyboardButton("Написать Конфуцию", url=f"https://t.me/{bot_me.username}")
                 ]]),
             )
         except Exception as e:
@@ -204,74 +223,70 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     await ctx.bot.send_chat_action(update.effective_chat.id, "typing")
 
-    # ── Флоу записи ───────────────────────────────────────────────────────────
     state = _signup.get(uid)
 
+    # ── Шаг: сбор имени ───────────────────────────────────────────────────────
     if state and state["step"] == "name":
         if text.lower() in ("отмена", "отменить", "стоп"):
             _signup.pop(uid, None)
             await msg.reply_text("Запись отменена.", reply_markup=_main_keyboard())
             return
-        if "?" in text or len(text) > 60 or any(
-            text.lower().startswith(w) for w in ("как", "где", "когда", "что", "почему", "сколько")
-        ):
+
+        if not _looks_like_name(text):
+            # Не похоже на имя — отвечаем через агента, потом напоминаем ввести имя
             ai_reply = await _agent.ask(uid, text)
-            await msg.reply_text(
-                ai_reply + "\n\nЧтобы записаться — напишите ваше имя:"
-            )
+            # Если агент теперь просит имя — он сам об этом скажет, ждём следующего сообщения
+            if any(p in ai_reply.lower() for p in _ASK_NAME_PHRASES):
+                await msg.reply_text(ai_reply)
+            else:
+                await msg.reply_text(ai_reply + "\n\nКак вас зовут, чтобы записаться?")
             return
+
         _signup[uid]["name"] = text
         _signup[uid]["step"] = "phone"
-        await msg.reply_text("Спасибо. Теперь напишите ваш номер телефона:")
+        await msg.reply_text(f"Отлично, {text}! Напишите ваш номер телефона — Сергей свяжется и подтвердит запись:")
         return
 
+    # ── Шаг: сбор телефона ────────────────────────────────────────────────────
     if state and state["step"] == "phone":
         if text.lower() in ("отмена", "отменить", "стоп"):
             _signup.pop(uid, None)
             await msg.reply_text("Запись отменена.", reply_markup=_main_keyboard())
             return
+
         if not _looks_like_phone(text):
-            # Похоже на вопрос, а не на номер — отвечаем и просим номер ещё раз
             ai_reply = await _agent.ask(uid, text)
-            await msg.reply_text(
-                ai_reply + "\n\nНапишите ваш номер телефона, чтобы завершить запись:"
-            )
+            await msg.reply_text(ai_reply + "\n\nНапишите номер телефона, чтобы завершить запись:")
             return
+
         saved = _signup.pop(uid)
         name = saved["name"]
         phone = text
         username = update.effective_user.username or ""
         lesson = saved.get("lesson") or _extract_lesson(uid)
         try:
-            await asyncio.to_thread(
-                save_booking, name, phone, "telegram", username, str(uid), lesson
-            )
+            await asyncio.to_thread(save_booking, name, phone, "telegram", username, str(uid), lesson)
         except Exception as e:
             logger.error(f"Ошибка сохранения заявки: {e}")
         await _notify_admins(name, phone, "Telegram", username, lesson)
         _agent.clear_history(uid)
         await msg.reply_text(
-            f"Записал вас, {name}. Сергей свяжется с вами в ближайшее время.",
+            f"Записал вас, {name}. Сергей свяжется в ближайшее время.",
             reply_markup=_main_keyboard(),
         )
         return
 
-    if _wants_signup(text):
-        lesson = _extract_lesson(uid)
-        _signup[uid] = {"step": "name", "username": update.effective_user.username or "", "lesson": lesson}
-        if lesson:
-            await msg.reply_text(
-                f"Отлично! Записываю вас на: {lesson}\n\n"
-                "Как вас зовут?"
-            )
-        else:
-            await msg.reply_text(
-                "Как вас зовут? Сергей свяжется с вами и уточнит все детали."
-            )
-        return
-
-    # ── Обычный диалог с Конфуцием ────────────────────────────────────────────
+    # ── Обычный диалог через агента ───────────────────────────────────────────
     reply = await _agent.ask(uid, text)
+
+    # Если агент в ответе просит имя — переходим в режим сбора контактов
+    if not _signup.get(uid) and any(p in reply.lower() for p in _ASK_NAME_PHRASES):
+        _signup[uid] = {
+            "step": "name",
+            "username": update.effective_user.username or "",
+            "lesson": _extract_lesson(uid),
+        }
+
     await msg.reply_text(reply, reply_markup=_main_keyboard())
 
 
@@ -280,11 +295,7 @@ def main():
         logger.error("TELEGRAM_CLIENT_TOKEN не задан")
         return
 
-    app = (
-        Application.builder()
-        .token(CLIENT_BOT_TOKEN)
-        .build()
-    )
+    app = Application.builder().token(CLIENT_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
