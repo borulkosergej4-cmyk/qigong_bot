@@ -945,7 +945,8 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # ── Медиа ─────────────────────────────────────────────────────────────────
     elif data == "media_menu":
         videos = list(VIDEOS_DIR.glob("*.mp4"))
-        audios = list(AUDIO_DIR.glob("*.mp3")) + list(AUDIO_DIR.glob("*.aac"))
+        audios = (list(AUDIO_DIR.glob("*.mp3")) + list(AUDIO_DIR.glob("*.aac"))
+                  + list(AUDIO_DIR.glob("*.m4a")) + list(AUDIO_DIR.glob("*.ogg")))
         photos = list(PHOTOS_DIR.glob("*.jpg")) + list(PHOTOS_DIR.glob("*.png"))
         has_logo = LOGO_PATH.exists()
         await q.edit_message_text(
@@ -1529,16 +1530,29 @@ async def _ask_bg_video(update: Update, ctx: ContextTypes.DEFAULT_TYPE, uid: int
 
 
 async def _ask_audio(update: Update, ctx: ContextTypes.DEFAULT_TYPE, uid: int, gen: dict):
-    audios = sorted(list(AUDIO_DIR.glob("*.mp3")) + list(AUDIO_DIR.glob("*.aac")))
+    audios = sorted(
+        list(AUDIO_DIR.glob("*.mp3")) + list(AUDIO_DIR.glob("*.aac"))
+        + list(AUDIO_DIR.glob("*.m4a")) + list(AUDIO_DIR.glob("*.ogg"))
+    )
     gen["reel_audio_options"] = [str(a) for a in audios[:8]]
     USER_GENERATED[uid] = gen
     btns = [[InlineKeyboardButton("🔇 Без аудио", callback_data="reel_audio_none")]]
     if gen.get("bg_video"):
         btns.append([InlineKeyboardButton("🎵 Аудио из видео-фона", callback_data="reel_audio_from_video")])
     for i, a in enumerate(audios[:8]):
-        btns.append([InlineKeyboardButton(f"🎵 {a.stem}", callback_data=f"reel_audio_{i}")])
+        btns.append([InlineKeyboardButton(f"🎵 {Path(a).stem}", callback_data=f"reel_audio_{i}")])
+    btns.append([InlineKeyboardButton("◀ Назад", callback_data="create_reel")])
     q = update.callback_query
-    await q.edit_message_text("🎵 Выбери аудио:", reply_markup=InlineKeyboardMarkup(btns))
+    if not q:
+        return
+    try:
+        await q.edit_message_text("🎵 Выбери аудио для Reel:", reply_markup=InlineKeyboardMarkup(btns))
+    except Exception as e:
+        logger.warning(f"_ask_audio edit failed: {e}")
+        try:
+            await ctx.bot.send_message(uid, "🎵 Выбери аудио для Reel:", reply_markup=InlineKeyboardMarkup(btns))
+        except Exception:
+            pass
 
 
 async def _ask_duration(update: Update, ctx: ContextTypes.DEFAULT_TYPE, uid: int):
