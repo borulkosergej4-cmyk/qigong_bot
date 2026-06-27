@@ -100,6 +100,9 @@ def init_db():
             cur.execute("""
                 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS user_id TEXT
             """)
+            cur.execute("""
+                ALTER TABLE bookings ADD COLUMN IF NOT EXISTS lesson TEXT
+            """)
         conn.commit()
 
 
@@ -300,13 +303,13 @@ def get_logo() -> bytes | None:
 # ── Заявки на запись ──────────────────────────────────────────────────────────
 
 def save_booking(name: str, phone: str, source: str, username: str = "",
-                 user_id: str = "") -> int:
+                 user_id: str = "", lesson: str = "") -> int:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO bookings (name, phone, source, username, user_id) "
-                "VALUES (%s, %s, %s, %s, %s) RETURNING id",
-                (name, phone, source, username, user_id),
+                "INSERT INTO bookings (name, phone, source, username, user_id, lesson) "
+                "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+                (name, phone, source, username, user_id, lesson),
             )
             bid = cur.fetchone()[0]
         conn.commit()

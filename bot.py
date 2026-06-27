@@ -50,12 +50,27 @@ def _wants_signup(text: str) -> bool:
     return any(kw in t for kw in _SIGNUP_KEYWORDS)
 
 
+def _extract_lesson(uid: int) -> str:
+    """Извлекает выбранное занятие из истории диалога (ищет строку с временем HH:MM)."""
+    import re
+    from agents.base_agent import _histories
+    history = list(_histories.get(uid, []))
+    time_re = re.compile(r'\b\d{1,2}:\d{2}\b')
+    # Смотрим сообщения ассистента в обратном порядке — ищем строку с временем
+    for msg in reversed(history):
+        if msg.get("role") == "assistant":
+            for line in msg.get("content", "").split("\n"):
+                if time_re.search(line) and len(line.strip()) < 150:
+                    return line.strip()
+    return ""
+
+
 def _looks_like_phone(text: str) -> bool:
     digits = sum(c.isdigit() for c in text)
     return digits >= 7
 
 
-async def _notify_admins(name: str, phone: str, source: str, username: str):
+async def _notify_admins(name: str, phone: str, source: str, username: str, lesson: str = ""):
     if not ADMIN_BOT_TOKEN or not ADMIN_IDS:
         return
     from telegram import Bot
@@ -63,7 +78,8 @@ async def _notify_admins(name: str, phone: str, source: str, username: str):
         f"🔔 Новая заявка на занятие\n"
         f"👤 Имя: {name}\n"
         f"📱 Телефон: {phone}\n"
-        f"📲 Источник: {source}"
+        + (f"📅 Занятие: {lesson}\n" if lesson else "")
+        + f"📲 Источник: {source}"
         + (f"\n🆔 @{username}" if username else "")
     )
     bot = Bot(token=ADMIN_BOT_TOKEN)
@@ -221,16 +237,18 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 ai_reply + "\n\nНапишите ваш номер телефона, чтобы завершить запись:"
             )
             return
-        name = _signup.pop(uid)["name"]
+        saved = _signup.pop(uid)
+        name = saved["name"]
         phone = text
         username = update.effective_user.username or ""
+        lesson = saved.get("lesson") or _extract_lesson(uid)
         try:
             await asyncio.to_thread(
-                save_booking, name, phone, "telegram", username, str(uid)
+                save_booking, name, phone, "telegram", username, str(uid), lesson
             )
         except Exception as e:
             logger.error(f"Ошибка сохранения заявки: {e}")
-        await _notify_admins(name, phone, "Telegram", username)
+        await _notify_admins(name, phone, "Telegram", username, lesson)
         _agent.clear_history(uid)
         await msg.reply_text(
             f"Записал вас, {name}. Сергей свяжется с вами в ближайшее время.",
@@ -239,11 +257,17 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     if _wants_signup(text):
-        _signup[uid] = {"step": "name", "username": update.effective_user.username or ""}
-        await msg.reply_text(
-            "Оставьте имя и номер телефона — Сергей свяжется с вами и подберёт удобное время.\n\n"
-            "Как вас зовут?"
-        )
+        lesson = _extract_lesson(uid)
+        _signup[uid] = {"step": "name", "username": update.effective_user.username or "", "lesson": lesson}
+        if lesson:
+            await msg.reply_text(
+                f"Отлично! Записываю вас на: {lesson}\n\n"
+                "Как вас зовут?"
+            )
+        else:
+            await msg.reply_text(
+                "Как вас зовут? Сергей свяжется с вами и уточнит все детали."
+            )
         return
 
     # ── Обычный диалог с Конфуцием ────────────────────────────────────────────
