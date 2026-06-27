@@ -622,30 +622,41 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     elif data == "reel_motivation":
         USER_GENERATED[uid] = {"reel_type": "motivation"}
-        USER_STATE[uid] = "reel_motivation_quote"
+        USER_STATE[uid] = "reel_motivation"
         await q.edit_message_text(
-            "Введи цитату или мысль для Reel (1–2 строки):",
+            "🌟 <b>Мотивационный Reel</b>\n\n"
+            "Напиши цитату или мысль (1–2 строки):\n\n"
+            "<i>Например: Цигун в парке — это не спорт. Это возвращение к себе.</i>",
+            parse_mode="HTML",
             reply_markup=_back_keyboard("create_reel"),
         )
 
     elif data == "reel_promo":
         USER_GENERATED[uid] = {"reel_type": "promo"}
-        USER_STATE[uid] = "reel_promo_data"
+        USER_STATE[uid] = "reel_promo"
         await q.edit_message_text(
-            "Введи данные акции через / :\n"
-            "<b>Заголовок / Цена / Подтекст / CTA-кнопка</b>\n\n"
-            "Пример: Пробное занятие / 500 р. / Первый шаг к здоровью / Записаться",
+            "🎁 <b>Промо-Reel (акция)</b>\n\n"
+            "Напиши через <code>|</code>:\n"
+            "<code>заголовок | цена | подпись</code>\n\n"
+            "Примеры:\n"
+            "• <code>Пробное занятие | 500 р. | Первый шаг к здоровью</code>\n"
+            "• <code>Летняя акция | 3 000 р. | Июнь — июль</code>\n\n"
+            "Или напиши <code>стандарт</code> — шаблон по умолчанию.",
             parse_mode="HTML",
             reply_markup=_back_keyboard("create_reel"),
         )
 
     elif data == "reel_announcement":
         USER_GENERATED[uid] = {"reel_type": "announcement"}
-        USER_STATE[uid] = "reel_announcement_data"
+        USER_STATE[uid] = "reel_announcement"
         await q.edit_message_text(
-            "Введи данные анонса через / :\n"
-            "<b>Тип / Дата / Тренер / Место</b> [/ Места / Подпись]\n\n"
-            "Пример: Цигун Пяти животных / 28 июня / Иван Петров / Онлайн",
+            "📢 <b>Анонс занятия</b>\n\n"
+            "Напиши через <code>/</code>:\n\n"
+            "<b>Обязательно:</b> <code>Занятие / Тренер / Дата / Время</code>\n"
+            "<b>Необязательно:</b> добавь <code>/Места/Подпись</code> в конце\n\n"
+            "<i>Примеры:</i>\n"
+            "<code>Цигун Пяти животных / Сергей / 5 июля / 10:00</code>\n\n"
+            "<code>Бадуаньцзин / Сергей / суббота / 9:00 / 8 мест / Парк Сосновка</code>",
             parse_mode="HTML",
             reply_markup=_back_keyboard("create_reel"),
         )
@@ -654,12 +665,16 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("reel_bg_"):
         choice = data.replace("reel_bg_", "")
         gen = USER_GENERATED.get(uid, {})
-        if choice == "none":
-            gen["bg_video"] = None
-        elif choice == "gradient":
+        if choice in ("none", "gradient"):
             gen["bg_video"] = None
         else:
-            gen["bg_video"] = str(VIDEOS_DIR / choice)
+            try:
+                idx = int(choice)
+                opts = gen.get("reel_video_options", [])
+                p = opts[idx] if 0 <= idx < len(opts) else None
+                gen["bg_video"] = p if p and Path(p).exists() else None
+            except (ValueError, IndexError):
+                gen["bg_video"] = None
         USER_GENERATED[uid] = gen
         await _ask_audio(update, ctx, uid, gen)
 
@@ -677,7 +692,13 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             else:
                 gen["audio_path"] = None
         else:
-            gen["audio_path"] = str(AUDIO_DIR / choice)
+            try:
+                idx = int(choice)
+                opts = gen.get("reel_audio_options", [])
+                p = opts[idx] if 0 <= idx < len(opts) else None
+                gen["audio_path"] = p if p and Path(p).exists() else None
+            except (ValueError, IndexError):
+                gen["audio_path"] = None
         USER_GENERATED[uid] = gen
         await _ask_duration(update, ctx, uid)
 
@@ -1291,49 +1312,72 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 "Неверный формат. Введи: ДД.ММ ЧЧ:ММ\nПример: 28.06 10:00"
             )
 
-    # ── Reel: цитата (мотивация) ──────────────────────────────────────────────
-    elif state == "reel_motivation_quote":
-        USER_GENERATED[uid]["quote"] = update.message.text.strip()
-        USER_STATE[uid] = "reel_motivation_sub"
-        await update.message.reply_text("Введи подпись (название канала или CTA):")
-
-    elif state == "reel_motivation_sub":
-        USER_GENERATED[uid]["subtext"] = update.message.text.strip()
-        USER_STATE[uid] = None
-        await _ask_bg_video(update, ctx, uid)
-
-    # ── Reel: промо-данные ────────────────────────────────────────────────────
-    elif state == "reel_promo_data":
-        parts = [p.strip() for p in update.message.text.split("/")]
-        if len(parts) < 4:
-            await update.message.reply_text(
-                "Нужно 4 части через /: Заголовок / Цена / Подтекст / CTA"
-            )
-            return
+    # ── Reel: мотивация (1 шаг) ──────────────────────────────────────────────
+    elif state == "reel_motivation":
+        USER_STATE.pop(uid, None)
+        quote = update.message.text.strip()
         gen = USER_GENERATED.get(uid, {})
-        gen.update({"headline": parts[0], "price": parts[1],
-                    "subtext": parts[2], "cta": parts[3]})
+        gen.update({"quote": quote, "subtext": "@baguazhangspb", "caption": quote})
         USER_GENERATED[uid] = gen
-        USER_STATE[uid] = None
         await _ask_bg_video(update, ctx, uid)
 
-    # ── Reel: данные анонса ───────────────────────────────────────────────────
-    elif state == "reel_announcement_data":
+    # ── Reel: промо ──────────────────────────────────────────────────────────
+    elif state == "reel_promo":
+        USER_STATE.pop(uid, None)
+        import re as _re
+        raw = update.message.text.strip()
+        DEFAULT_CTA = "@baguazhangspb"
+        if raw.lower() in ("стандарт", "default", ""):
+            headline, price, subtext, cta = "Пробное занятие", "500 р.", "Первое занятие ни к чему не обязывает", DEFAULT_CTA
+        elif "|" in raw:
+            parts = [p.strip() for p in raw.split("|")]
+            headline = parts[0] if len(parts) > 0 else ""
+            price    = parts[1] if len(parts) > 1 else ""
+            subtext  = parts[2] if len(parts) > 2 else ""
+            cta      = parts[3] if len(parts) > 3 else DEFAULT_CTA
+        elif "/" in raw:
+            parts = [p.strip() for p in raw.split("/")]
+            headline = parts[0] if len(parts) > 0 else ""
+            price    = parts[1] if len(parts) > 1 else ""
+            subtext  = parts[2] if len(parts) > 2 else ""
+            cta      = parts[3] if len(parts) > 3 else DEFAULT_CTA
+        else:
+            price_m = _re.search(r'(\d[\d\s]*)\s*(?:рублей?|руб\.?|р\.?|₽)', raw, _re.IGNORECASE)
+            if price_m:
+                price    = price_m.group(1).strip() + " р."
+                headline = (raw[:price_m.start()] + raw[price_m.end():]).strip().strip(".,!|")
+                subtext  = ""
+            else:
+                headline, price, subtext = raw, "", ""
+            cta = DEFAULT_CTA
+        gen = USER_GENERATED.get(uid, {})
+        gen.update({"headline": headline, "price": price, "subtext": subtext, "cta": cta,
+                    "caption": f"{headline} — {price}"})
+        USER_GENERATED[uid] = gen
+        await _ask_bg_video(update, ctx, uid)
+
+    # ── Reel: анонс занятия ───────────────────────────────────────────────────
+    elif state == "reel_announcement":
         parts = [p.strip() for p in update.message.text.split("/")]
         if len(parts) < 4:
             await update.message.reply_text(
-                "Нужно минимум 4 части: Тип / Дата / Тренер / Место"
+                "Нужно минимум 4 части:\n"
+                "<code>Занятие / Тренер / Дата / Время</code>\n\nПопробуй ещё раз.",
+                parse_mode="HTML",
             )
             return
+        USER_STATE.pop(uid, None)
         gen = USER_GENERATED.get(uid, {})
         gen.update({
-            "class_type": parts[0], "date": parts[1],
-            "trainer":    parts[2], "time": parts[3],
+            "class_type": parts[0],
+            "trainer":    parts[1],
+            "date":       parts[2],
+            "time":       parts[3],
             "spots":      parts[4] if len(parts) > 4 else "",
             "tagline":    parts[5] if len(parts) > 5 else "",
+            "caption":    f"{parts[0]} · {parts[1]} · {parts[2]} {parts[3]}",
         })
         USER_GENERATED[uid] = gen
-        USER_STATE[uid] = None
         await _ask_bg_video(update, ctx, uid)
 
     # ── Загрузка видео-фона ───────────────────────────────────────────────────
@@ -1471,31 +1515,30 @@ async def _do_generate_post(update: Update, ctx: ContextTypes.DEFAULT_TYPE,
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def _ask_bg_video(update: Update, ctx: ContextTypes.DEFAULT_TYPE, uid: int):
-    videos = list(VIDEOS_DIR.glob("*.mp4"))
-    btns = [
-        [InlineKeyboardButton("🎨 Градиент (без видео)", callback_data="reel_bg_gradient")],
-    ]
-    for v in videos[:8]:
-        btns.append([InlineKeyboardButton(f"🎥 {v.name}", callback_data=f"reel_bg_{v.name}")])
+    videos = sorted(VIDEOS_DIR.glob("*.mp4"))
+    gen = USER_GENERATED.get(uid, {})
+    gen["reel_video_options"] = [str(v) for v in videos[:8]]
+    USER_GENERATED[uid] = gen
+    btns = [[InlineKeyboardButton("🎨 Градиент (без видео)", callback_data="reel_bg_gradient")]]
+    for i, v in enumerate(videos[:8]):
+        btns.append([InlineKeyboardButton(f"🎥 {v.stem}", callback_data=f"reel_bg_{i}")])
     btns.append([InlineKeyboardButton("◀ Назад", callback_data="create_reel")])
-    text = "Выбери видео-фон для Reel:"
     msg = update.message or (update.callback_query.message if update.callback_query else None)
     if msg:
-        await msg.reply_text(text, reply_markup=InlineKeyboardMarkup(btns))
+        await msg.reply_text("🎨 Выбери видео-фон для Reel:", reply_markup=InlineKeyboardMarkup(btns))
 
 
 async def _ask_audio(update: Update, ctx: ContextTypes.DEFAULT_TYPE, uid: int, gen: dict):
-    audios = list(AUDIO_DIR.glob("*.mp3")) + list(AUDIO_DIR.glob("*.aac"))
-    btns = [
-        [InlineKeyboardButton("🔇 Без аудио",            callback_data="reel_audio_none")],
-    ]
+    audios = sorted(list(AUDIO_DIR.glob("*.mp3")) + list(AUDIO_DIR.glob("*.aac")))
+    gen["reel_audio_options"] = [str(a) for a in audios[:8]]
+    USER_GENERATED[uid] = gen
+    btns = [[InlineKeyboardButton("🔇 Без аудио", callback_data="reel_audio_none")]]
     if gen.get("bg_video"):
-        btns.append([InlineKeyboardButton("🎵 Аудио из видео-фона",
-                                          callback_data="reel_audio_from_video")])
-    for a in audios[:8]:
-        btns.append([InlineKeyboardButton(f"🎵 {a.name}", callback_data=f"reel_audio_{a.name}")])
+        btns.append([InlineKeyboardButton("🎵 Аудио из видео-фона", callback_data="reel_audio_from_video")])
+    for i, a in enumerate(audios[:8]):
+        btns.append([InlineKeyboardButton(f"🎵 {a.stem}", callback_data=f"reel_audio_{i}")])
     q = update.callback_query
-    await q.edit_message_text("Выбери аудио:", reply_markup=InlineKeyboardMarkup(btns))
+    await q.edit_message_text("🎵 Выбери аудио:", reply_markup=InlineKeyboardMarkup(btns))
 
 
 async def _ask_duration(update: Update, ctx: ContextTypes.DEFAULT_TYPE, uid: int):

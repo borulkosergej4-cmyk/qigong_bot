@@ -76,17 +76,22 @@ async def _notify_admins(name: str, phone: str, source: str, username: str):
 
 def _main_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🙋 Задать вопрос",       callback_data="ask_question")],
-        [InlineKeyboardButton("📖 О канале",             callback_data="about_channel")],
-        [InlineKeyboardButton("🔗 Подписные площадки",  callback_data="subscriptions")],
+        [InlineKeyboardButton("📅 Записаться на занятие", callback_data="sign_up")],
+        [InlineKeyboardButton("💬 Задать вопрос",         callback_data="ask_question")],
+        [InlineKeyboardButton("📖 О канале",              callback_data="about_channel")],
+        [InlineKeyboardButton("🔗 Подписные площадки",   callback_data="subscriptions")],
     ])
 
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    _agent.clear_history(update.effective_user.id)
+    user = update.effective_user
+    _agent.clear_history(user.id)
+    _signup.pop(user.id, None)
+    await update.message.reply_text("👋")
     await update.message.reply_text(
-        "Приветствую. Я Конфуций — помогу разобраться в практике цигун и ушу.\n\n"
-        "Можешь задать любой вопрос или выбрать раздел:",
+        f"Здравствуйте, {user.first_name}! 👋\n\n"
+        "Я Конфуций — помогаю разобраться в практике цигун и ушу у Сергея в Санкт-Петербурге.\n\n"
+        "Готов ответить на любые вопросы — о занятиях, расписании и записи. Чем могу помочь?",
         reply_markup=_main_keyboard(),
     )
 
@@ -96,7 +101,15 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     data = q.data
 
-    if data == "ask_question":
+    if data == "sign_up":
+        uid = update.effective_user.id
+        _signup[uid] = {"step": "name", "username": update.effective_user.username or ""}
+        await q.edit_message_text(
+            "Оставьте имя и номер телефона — Сергей свяжется с вами и подберёт удобное время.\n\n"
+            "Как вас зовут?"
+        )
+
+    elif data == "ask_question":
         await q.edit_message_text(
             "Задай свой вопрос — отвечу.",
             reply_markup=InlineKeyboardMarkup([
