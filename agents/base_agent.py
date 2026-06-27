@@ -91,15 +91,22 @@ class BaseAgent:
         if is_first:
             system = system + "\n\nЭто первое сообщение от этого человека — обязательно представься."
         if any(kw in text.lower() for kw in self._SCHEDULE_KEYWORDS):
-            from datetime import datetime, timedelta, timezone
-            MOSCOW_TZ = timezone(timedelta(hours=3))
-            now = datetime.now(MOSCOW_TZ)
-            DAYS_RU = {
-                0: "Понедельник", 1: "Вторник", 2: "Среда",
-                3: "Четверг", 4: "Пятница", 5: "Суббота", 6: "Воскресенье"
-            }
-            today_str = f"{DAYS_RU[now.weekday()]}, {now.strftime('%d.%m.%Y')}, {now.strftime('%H:%M')} МСК"
-            system = f"{self.system}\n\nСейчас: {today_str}"
+            try:
+                import asyncio
+                from data.mobifitness import get_schedule_text, get_today_info
+                schedule = await asyncio.to_thread(get_schedule_text)
+                today = get_today_info()
+                system = (
+                    f"{self.system}\n\n"
+                    f"Сейчас: {today}\n\n"
+                    f"Актуальное расписание занятий:\n{schedule}"
+                )
+            except Exception as e:
+                logger.warning(f"Не удалось получить расписание: {e}")
+                from datetime import datetime, timedelta, timezone
+                MOSCOW_TZ = timezone(timedelta(hours=3))
+                now = datetime.now(MOSCOW_TZ)
+                system = f"{self.system}\n\nСейчас: {now.strftime('%d.%m.%Y %H:%M')} МСК"
 
         reply = await self._generate(history, system=system)
 
