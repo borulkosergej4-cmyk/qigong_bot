@@ -10,6 +10,19 @@ TOKEN = "b6d7d372-8ea5-46c9-991f-8bf4d5deeecc"
 # Показывать только занятия этого тренера (регистронезависимо, частичное совпадение)
 TRAINER_FILTER = "Сергей"
 
+# Маппинг фрагментов названий залов из Mobifitness → читаемое место с адресом
+# Реальные названия из API:
+#   "Парк Сосновка площадка 1"         → парк Сосновка
+#   "Зал 1 на Просвещения 43"          → Парк Молл
+#   "Зал 2 на Просвещения 43"          → Парк Молл
+#   "Зал в Новом Девяткино ул Арсенальная 5А" → Новое Девяткино
+ROOM_MAP = {
+    "сосновка":    "парк Сосновка (Тореза 72)",
+    "просвещения": "Парк Молл (Просвещения 43)",
+    "девяткино":   "Новое Девяткино (Арсенальная 5а)",
+    "арсенальная": "Новое Девяткино (Арсенальная 5а)",
+}
+
 HEADERS = {
     "authorization": f"Bearer {TOKEN}",
     "accept": "application/json, text/javascript, */*; q=0.01",
@@ -27,6 +40,7 @@ DAYS_RU = {
 TITLE_MAP = {
     "qigong": "Цигун",
     "цигун": "Цигун",
+    "оздоровительный цигун": "Оздоровительный цигун",
     "wushu": "Ушу",
     "ушу": "Ушу",
     "bagua": "Багуачжан",
@@ -46,6 +60,16 @@ TITLE_MAP = {
 def _normalize_title(title: str) -> str:
     key = title.strip().lower()
     return TITLE_MAP.get(key, title)
+
+
+def _normalize_room(room_title: str) -> str:
+    if not room_title:
+        return ""
+    key = room_title.strip().lower()
+    for fragment, label in ROOM_MAP.items():
+        if fragment in key:
+            return label
+    return room_title.strip()
 
 
 def get_current_week() -> tuple[int, int]:
@@ -93,6 +117,14 @@ def format_schedule(data: dict) -> str:
         if TRAINER_FILTER and TRAINER_FILTER.lower() not in trainer_name.lower():
             continue
 
+        # Зал/место проведения
+        room_raw = (
+            item.get("room") or item.get("hall") or item.get("location") or {}
+        )
+        if isinstance(room_raw, dict):
+            room_raw = room_raw.get("title", "")
+        location = _normalize_room(str(room_raw))
+
         dt_str = item.get("datetime", "")
         length = item.get("length", 0)
 
@@ -116,11 +148,18 @@ def format_schedule(data: dict) -> str:
         total = item.get("totalSlots", "")
         try:
             av, tot = int(available), int(total)
-            places_str = "мест нет" if av == 0 else f"мест: {av}/{tot}"
+            if av == 0:
+                places_str = "мест нет"
+            elif av == tot:
+                places_str = f"свободно {av} мест"
+            else:
+                places_str = f"свободно {av} из {tot}"
         except Exception:
             places_str = ""
 
         line = f"  {time_str} — {name}"
+        if location:
+            line += f" | {location}"
         if places_str:
             line += f" [{places_str}]"
 
