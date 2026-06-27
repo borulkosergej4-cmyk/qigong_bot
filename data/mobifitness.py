@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 MOSCOW_TZ = timezone(timedelta(hours=3))
 
-CLUB_ID = "242178"
+CLUB_ID = "2391"
 BASE_URL = f"https://mobifitness.ru/api/v8/club/{CLUB_ID}"
 TOKEN = "b6d7d372-8ea5-46c9-991f-8bf4d5deeecc"
 
