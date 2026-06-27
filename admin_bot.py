@@ -414,18 +414,53 @@ def _publish_keyboard(platform: str):
     ])
 
 
+_FORMAT_ICON = {
+    "анонс":         "📢",
+    "совет":         "💡",
+    "мотивация":     "🔥",
+    "история":       "📖",
+    "провокация":    "⚡",
+    "польза":        "🌿",
+    "мини-практика": "🎯",
+    "сравнение":     "⚖️",
+}
+
+_MONTHS_RU_GEN = [
+    "январь", "февраль", "март", "апрель", "май", "июнь",
+    "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь",
+]
+
+
+def _format_plan_text(items: list, month: str) -> str:
+    import html as _html_mod
+    try:
+        yr, mn = month.split("-")
+        month_name = f"{_MONTHS_RU_GEN[int(mn)-1]} {yr}"
+    except Exception:
+        month_name = month
+    lines = [f"📅 <b>Контент-план на {month_name}</b>\n"]
+    for i, item in enumerate(items, 1):
+        day = item.get("day", "?")
+        topic = item.get("topic", "")
+        fmt = item.get("format", "")
+        platform = item.get("platform", "both")
+        icon = _FORMAT_ICON.get(fmt.lower(), "📝")
+        plat_label = "ВК+TG" if platform == "both" else ("ВК" if platform == "vk" else "TG")
+        safe_topic = _html_mod.escape(topic)
+        lines.append(f"{i}. {icon} <b>День {day}</b> — {fmt} [{plat_label}]\n<i>{safe_topic}</i>\n")
+    return "\n".join(lines)
+
+
+def _plan_keyboard(plan_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Утвердить план", callback_data=f"cp_approve_{plan_id}")],
+        [InlineKeyboardButton("🔄 Переделать",    callback_data="cp_regen")],
+        [InlineKeyboardButton("◀ Назад",          callback_data="content_plan")],
+    ])
+
+
 async def _show_plan_items(q, uid: int, plan_id: int, items: list):
     """Показывает пункты контент-плана с кнопками для генерации."""
-    _FORMAT_ICON = {
-        "анонс":      "📢",
-        "совет":      "💡",
-        "мотивация":  "🔥",
-        "история":    "📖",
-        "провокация": "⚡",
-        "польза":     "🌿",
-        "мини-практика": "🎯",
-        "сравнение":  "⚖️",
-    }
     buttons = []
     for i, item in enumerate(items):
         icon = _FORMAT_ICON.get(item.get("format", "").lower(), "📝")
@@ -729,24 +764,13 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             if approved:
                 await _show_plan_items(q, uid, plan_id, items)
             else:
-                # Показываем текст плана и кнопку утверждения
-                lines = [f"⏳ Контент-план {month} (не утверждён):\n"]
-                for it in items[:25]:
-                    day = it.get("day", "?")
-                    topic = it.get("topic", "?")[:50]
-                    fmt = it.get("format", "?")
-                    lines.append(f"День {day}: {topic} [{fmt}]")
-                text = "\n".join(lines)
-                # Telegram ограничение 4096 символов
+                text = _format_plan_text(items, month)
                 if len(text) > 4000:
                     text = text[:4000] + "\n…"
                 await q.edit_message_text(
                     text,
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("✅ Утвердить план", callback_data=f"cp_approve_{plan_id}")],
-                        [InlineKeyboardButton("🔄 Создать новый",  callback_data="cp_generate")],
-                        [InlineKeyboardButton("◀ Назад",           callback_data="content_plan")],
-                    ]),
+                    parse_mode="HTML",
+                    reply_markup=_plan_keyboard(plan_id),
                 )
         except Exception as e:
             logger.error(f"cp_view error: {e}", exc_info=True)
@@ -783,6 +807,18 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 f"❌ Ошибка при утверждении плана: {e}",
                 reply_markup=_back_keyboard("content_plan"),
             )
+
+    elif data == "cp_regen":
+        USER_STATE[uid] = "waiting_plan_feedback"
+        await q.edit_message_reply_markup(reply_markup=None)
+        await q.message.reply_text(
+            "Что изменить в плане? Напиши пожелания:\n\n"
+            "<i>Например: добавь больше анонсов занятий, убери провокации, сделай темы короче</i>",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("← Оставить как есть", callback_data="cp_view")],
+            ]),
+        )
 
     elif data.startswith("plan_item_"):
         # Пользователь выбрал конкретный пункт плана
@@ -1157,22 +1193,56 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             plan_id = await asyncio.to_thread(
                 save_content_plan, month, json.dumps(items, ensure_ascii=False)
             )
-            CONTENT_PLANS[uid] = items
-            lines = [f"✅ Контент-план на {month} создан ({len(items)} постов):\n"]
-            for it in items[:10]:
-                lines.append(f"День {it.get('day','?')}: {it.get('topic','?')}")
-            lines.append("...")
+            CONTENT_PLANS[uid] = {"items": items, "plan_id": plan_id}
+            text = _format_plan_text(items, month)
+            if len(text) > 4000:
+                text = text[:4000] + "\n…"
             await update.message.reply_text(
-                "\n".join(lines),
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ Утвердить", callback_data=f"cp_approve_{plan_id}")],
-                    [InlineKeyboardButton("◀ Меню",      callback_data="main_menu")],
-                ]),
+                text,
+                parse_mode="HTML",
+                reply_markup=_plan_keyboard(plan_id),
             )
         except Exception as e:
             await update.message.reply_text(f"Ошибка: {e}", reply_markup=_back_keyboard())
         finally:
             USER_STATE.pop(uid, None)
+
+    # ── Переделать контент-план с пожеланиями ────────────────────────────────
+    elif state == "waiting_plan_feedback":
+        feedback = update.message.text.strip()
+        USER_STATE.pop(uid, None)
+        month = datetime.now().strftime("%Y-%m")
+        await update.message.reply_text("Переделываю план с учётом пожеланий...")
+        try:
+            prompt = (
+                f"Создай контент-план на месяц {month} для Telegram-канала и группы ВКонтакте "
+                f"об оздоровительном цигун и ушу. "
+                f"Пожелания: {feedback}. "
+                "30 постов. Верни ТОЛЬКО JSON."
+            )
+            raw = await asyncio.to_thread(
+                _generate_text, prompt, CONTENT_PLAN_SYSTEM_PROMPT, 3000
+            )
+            start = raw.find("[")
+            end   = raw.rfind("]") + 1
+            if start < 0 or end <= start:
+                raise ValueError(f"AI вернул некорректный ответ: {raw[:200]!r}")
+            items = json.loads(raw[start:end])
+            plan_id = await asyncio.to_thread(
+                save_content_plan, month, json.dumps(items, ensure_ascii=False)
+            )
+            CONTENT_PLANS[uid] = {"items": items, "plan_id": plan_id}
+            text = _format_plan_text(items, month)
+            if len(text) > 4000:
+                text = text[:4000] + "\n…"
+            await update.message.reply_text(
+                text,
+                parse_mode="HTML",
+                reply_markup=_plan_keyboard(plan_id),
+            )
+        except Exception as e:
+            logger.error(f"waiting_plan_feedback error: {e}", exc_info=True)
+            await update.message.reply_text(f"Ошибка: {e}", reply_markup=_back_keyboard())
 
     # ── Добавление подписки — название ────────────────────────────────────────
     elif state == "awaiting_sub_name":

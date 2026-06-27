@@ -56,9 +56,12 @@ async def run_client_bot():
     import bot as client_bot
     from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 
-    token = os.getenv("TELEGRAM_CLIENT_TOKEN", "").strip()
+    token = (
+        os.getenv("TELEGRAM_CLIENT_TOKEN", "").strip()
+        or os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    )
     if not token:
-        logger.warning("TELEGRAM_CLIENT_TOKEN не задан — client bot не запущен")
+        logger.warning("TELEGRAM_CLIENT_TOKEN / TELEGRAM_BOT_TOKEN не заданы — client bot не запущен")
         return
 
     app = (
