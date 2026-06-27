@@ -73,6 +73,12 @@ class BaseAgent:
     def clear_history(self, user_id: int):
         _histories.pop(user_id, None)
 
+    def seed(self, user_id: int, content: str):
+        """Добавить стартовое сообщение ассистента, чтобы AI не представлялся заново."""
+        h = self._history(user_id)
+        if not h:
+            h.append({"role": "assistant", "content": content})
+
     _SCHEDULE_KEYWORDS = (
         "расписани", "занятия", "занятие", "тренировк", "записат",
         "когда", "во сколько", "в какое время", "ближайш", "сегодня",
@@ -88,8 +94,6 @@ class BaseAgent:
             history[:] = history[-_MAX_HISTORY:]
 
         system = self.system
-        if is_first:
-            system = system + "\n\nЭто первое сообщение от этого человека — обязательно представься."
         if any(kw in text.lower() for kw in self._SCHEDULE_KEYWORDS):
             try:
                 import asyncio

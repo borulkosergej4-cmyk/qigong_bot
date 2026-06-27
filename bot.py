@@ -87,13 +87,15 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     _agent.clear_history(user.id)
     _signup.pop(user.id, None)
-    await update.message.reply_text("👋")
-    await update.message.reply_text(
+    greeting = (
         f"Здравствуйте, {user.first_name}! 👋\n\n"
         "Я Конфуций — помогаю разобраться в практике цигун и ушу у Сергея в Санкт-Петербурге.\n\n"
-        "Готов ответить на любые вопросы — о занятиях, расписании и записи. Чем могу помочь?",
-        reply_markup=_main_keyboard(),
+        "Готов ответить на любые вопросы — о занятиях, расписании и записи. Чем могу помочь?"
     )
+    # Сохраняем приветствие в историю — чтобы AI не повторял представление
+    _agent.seed(user.id, greeting)
+    await update.message.reply_text("👋")
+    await update.message.reply_text(greeting, reply_markup=_main_keyboard())
 
 
 async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -102,12 +104,13 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     data = q.data
 
     if data == "sign_up":
+        # Сначала показываем расписание через агента, не сразу просим контакты
         uid = update.effective_user.id
-        _signup[uid] = {"step": "name", "username": update.effective_user.username or ""}
-        await q.edit_message_text(
-            "Оставьте имя и номер телефона — Сергей свяжется с вами и подберёт удобное время.\n\n"
-            "Как вас зовут?"
-        )
+        await q.answer()
+        await ctx.bot.send_chat_action(q.message.chat_id, "typing")
+        reply = await _agent.ask(uid, "Хочу записаться на занятие. Покажи ближайшее расписание.")
+        await q.message.reply_text(reply, reply_markup=_main_keyboard())
+        return
 
     elif data == "ask_question":
         await q.edit_message_text(
