@@ -143,6 +143,24 @@ class BaseAgent:
         ]
         for pattern, replacement in _DAY_MAP:
             text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+
+        # практика → занятие (все падежи)
+        _PRACTICE_MAP = [
+            (r'\bпрактиках\b',   'занятиях'),
+            (r'\bпрактиками\b',  'занятиями'),
+            (r'\bпрактикам\b',   'занятиям'),
+            (r'\bпрактикой\b',   'занятием'),
+            (r'\bпрактику\b',    'занятие'),
+            (r'\bпрактике\b',    'занятии'),
+            (r'\bпрактики\b',    'занятия'),
+            (r'\bпрактика\b',    'занятие'),
+        ]
+        for pattern, replacement in _PRACTICE_MAP:
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+
+        # Нормализация названия комплекса
+        text = re.sub(r'\bДа\s+[Уу]\b', 'Да ВУ', text)
+
         if '\n' not in text:
             text = re.sub(r'([.!?])\s+([А-ЯЁ«(])', r'\1\n\n\2', text)
         return text.strip()
