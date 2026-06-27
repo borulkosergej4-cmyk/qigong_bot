@@ -1,5 +1,5 @@
 """
-Бот-администратор для канала «Целительный цигун и ушу».
+Бот-администратор для канала «Оздоровительный цигун и ушу».
 Функции: генерация постов, Reels, контент-план, ссылки на подписки, медиа.
 """
 import asyncio
@@ -100,7 +100,7 @@ LOGO_PATH = STATIC_DIR / "logo.png"
 # AI-генерация текста
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _generate_text(user_prompt: str, system: str | None = None) -> str:
+def _generate_text(user_prompt: str, system: str | None = None, max_tokens: int = 1200) -> str:
     sys = system or POST_SYSTEM_PROMPT
     messages = [
         {"role": "system", "content": sys},
@@ -113,7 +113,7 @@ def _generate_text(user_prompt: str, system: str | None = None) -> str:
             cl = _sdk.Anthropic(api_key=_ANTHROPIC_KEY)
             resp = cl.messages.create(
                 model="claude-haiku-4-5-20251001",
-                max_tokens=1200,
+                max_tokens=max_tokens,
                 system=sys,
                 messages=[{"role": "user", "content": user_prompt}],
             )
@@ -127,7 +127,7 @@ def _generate_text(user_prompt: str, system: str | None = None) -> str:
     for model in (_OPENROUTER_MODEL, _OPENROUTER_FALLBACK):
         try:
             resp = _openrouter.chat.completions.create(
-                model=model, messages=messages, max_tokens=1200,
+                model=model, messages=messages, max_tokens=max_tokens,
             )
             text = resp.choices[0].message.content
             if text:
@@ -417,7 +417,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not _is_admin(update.effective_user.id):
         return
     await update.message.reply_text(
-        "Панель управления каналом 🌿 Целительный цигун и ушу",
+        "Панель управления каналом 🌿 Оздоровительный цигун и ушу",
         reply_markup=_main_keyboard(),
     )
 
@@ -613,10 +613,13 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
             return
         plan_id, items_json, approved = plan
-        try:
-            items = json.loads(items_json)
-        except Exception:
-            items = []
+        if isinstance(items_json, list):
+            items = items_json
+        else:
+            try:
+                items = json.loads(items_json)
+            except Exception:
+                items = []
         lines = [f"{'✅' if approved else '⏳'} Контент-план {month}:\n"]
         for it in items[:15]:
             lines.append(f"День {it.get('day','?')}: {it.get('topic','?')} [{it.get('format','?')}]")
@@ -919,10 +922,19 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 f"об оздоровительном цигун и ушу. Фокус месяца: {focus or 'общее оздоровление'}. "
                 "30 постов. Верни ТОЛЬКО JSON."
             )
-            raw = await asyncio.to_thread(_generate_text, prompt, CONTENT_PLAN_SYSTEM_PROMPT)
+            raw = await asyncio.to_thread(
+                _generate_text, prompt, CONTENT_PLAN_SYSTEM_PROMPT, 3000
+            )
             start = raw.find("[")
             end   = raw.rfind("]") + 1
-            items = json.loads(raw[start:end]) if start >= 0 else []
+            if start < 0 or end <= start:
+                raise ValueError(
+                    f"AI вернул пустой или некорректный ответ. Первые 200 символов: {raw[:200]!r}"
+                )
+            try:
+                items = json.loads(raw[start:end])
+            except json.JSONDecodeError as je:
+                raise ValueError(f"Ошибка парсинга JSON: {je}. Фрагмент: {raw[start:start+300]!r}")
             plan_id = await asyncio.to_thread(
                 save_content_plan, month, json.dumps(items, ensure_ascii=False)
             )

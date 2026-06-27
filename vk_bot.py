@@ -31,14 +31,27 @@ _agent = BaseAgent(CONFUCIUS_PROMPT)
 _signup: dict[int, dict] = {}
 
 _SIGNUP_KEYWORDS = (
-    "записаться", "запишите", "хочу записаться", "как записаться",
-    "запись на", "хотел бы записаться", "можно записаться",
-    "хочу попасть", "как попасть", "попасть на занятие",
+    "запишите меня", "запиши меня", "хочу записаться", "хотел бы записаться",
+    "хотела бы записаться", "хочу попасть на занятие", "запишите на занятие",
+    "можно записаться", "хочу прийти на занятие", "как мне записаться",
+    "запись к сергею", "запишите пожалуйста",
+)
+
+_INFO_KEYWORDS = (
+    "как записаться", "как попасть", "что нужно для записи",
+    "как стать участником", "условия записи",
 )
 
 
 def _wants_signup(text: str) -> bool:
-    return any(kw in text.lower() for kw in _SIGNUP_KEYWORDS)
+    t = text.lower()
+    if any(kw in t for kw in _INFO_KEYWORDS):
+        return False
+    return any(kw in t for kw in _SIGNUP_KEYWORDS)
+
+
+def _looks_like_phone(text: str) -> bool:
+    return sum(c.isdigit() for c in text) >= 7
 
 
 async def _notify_admins(name: str, phone: str):
@@ -128,12 +141,32 @@ async def _handle(user_id: int, text: str):
         state = _signup.get(user_id)
 
         if state and state["step"] == "name":
+            if text.lower() in ("отмена", "отменить", "стоп"):
+                _signup.pop(user_id, None)
+                await _send_message(user_id, "Запись отменена.")
+                return
+            if "?" in text or len(text) > 60 or any(
+                text.lower().startswith(w) for w in ("как", "где", "когда", "что", "почему", "сколько")
+            ):
+                ai_reply = await _agent.ask(user_id, text)
+                await _send_message(user_id,
+                    ai_reply + "\n\nЧтобы записаться — напишите ваше имя:")
+                return
             _signup[user_id]["name"] = text
             _signup[user_id]["step"] = "phone"
             await _send_message(user_id, "Спасибо. Теперь напишите ваш номер телефона:")
             return
 
         if state and state["step"] == "phone":
+            if text.lower() in ("отмена", "отменить", "стоп"):
+                _signup.pop(user_id, None)
+                await _send_message(user_id, "Запись отменена.")
+                return
+            if not _looks_like_phone(text):
+                ai_reply = await _agent.ask(user_id, text)
+                await _send_message(user_id,
+                    ai_reply + "\n\nНапишите ваш номер телефона, чтобы завершить запись:")
+                return
             name = _signup.pop(user_id)["name"]
             phone = text
             try:
