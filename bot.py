@@ -204,7 +204,9 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         phone = text
         username = update.effective_user.username or ""
         try:
-            await asyncio.to_thread(save_booking, name, phone, "telegram", username)
+            await asyncio.to_thread(
+                save_booking, name, phone, "telegram", username, str(uid)
+            )
         except Exception as e:
             logger.error(f"Ошибка сохранения заявки: {e}")
         await _notify_admins(name, phone, "Telegram", username)

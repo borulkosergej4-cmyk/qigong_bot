@@ -47,7 +47,7 @@ def _call_openrouter(messages: list, system: str, model: str) -> str:
     resp = _openrouter_client.chat.completions.create(
         model=model,
         messages=[{"role": "system", "content": system}] + messages,
-        max_tokens=900,
+        max_tokens=1000,
         timeout=30,
     )
     return resp.choices[0].message.content.strip()
@@ -57,7 +57,7 @@ def _call_groq(messages: list, system: str, model: str) -> str:
     resp = _groq_client.chat.completions.create(
         model=model,
         messages=[{"role": "system", "content": system}] + messages,
-        max_tokens=900,
+        max_tokens=1000,
         timeout=30,
     )
     return resp.choices[0].message.content.strip()
@@ -116,7 +116,34 @@ class BaseAgent:
     @staticmethod
     def _postprocess(text: str) -> str:
         import re
-        text = re.sub(r"\*+", "", text)
+        text = text.replace("**", "").replace("*", "")
+        _DAY_MAP = [
+            (r'\bНаMonday\b',       'В понедельник'),
+            (r'\bна\s+Monday\b',    'в понедельник'),
+            (r'\bMonday\b',         'Понедельник'),
+            (r'\bНаTuesday\b',      'Во вторник'),
+            (r'\bна\s+Tuesday\b',   'во вторник'),
+            (r'\bTuesday\b',        'Вторник'),
+            (r'\bНаWednesday\b',    'В среду'),
+            (r'\bна\s+Wednesday\b', 'в среду'),
+            (r'\bWednesday\b',      'Среда'),
+            (r'\bНаThursday\b',     'В четверг'),
+            (r'\bна\s+Thursday\b',  'в четверг'),
+            (r'\bThursday\b',       'Четверг'),
+            (r'\bНаFriday\b',       'В пятницу'),
+            (r'\bна\s+Friday\b',    'в пятницу'),
+            (r'\bFriday\b',         'Пятница'),
+            (r'\bНаSaturday\b',     'В субботу'),
+            (r'\bна\s+Saturday\b',  'в субботу'),
+            (r'\bSaturday\b',       'Суббота'),
+            (r'\bНаSunday\b',       'В воскресенье'),
+            (r'\bна\s+Sunday\b',    'в воскресенье'),
+            (r'\bSunday\b',         'Воскресенье'),
+        ]
+        for pattern, replacement in _DAY_MAP:
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+        if '\n' not in text:
+            text = re.sub(r'([.!?])\s+([А-ЯЁ«(])', r'\1\n\n\2', text)
         return text.strip()
 
     async def _generate(self, messages: list, system: str = None) -> str:
@@ -127,7 +154,7 @@ class BaseAgent:
             try:
                 resp = _anthropic_client.messages.create(
                     model=CLAUDE_MODEL,
-                    max_tokens=900,
+                    max_tokens=1000,
                     system=sys,
                     messages=messages,
                 )

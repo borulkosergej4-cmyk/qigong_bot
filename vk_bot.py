@@ -164,7 +164,9 @@ async def _handle(user_id: int, text: str):
             name = _signup.pop(user_id)["name"]
             phone = text
             try:
-                await asyncio.to_thread(save_booking, name, phone, "vk", str(user_id))
+                await asyncio.to_thread(
+                    save_booking, name, phone, "vk", str(user_id), str(user_id)
+                )
             except Exception as e:
                 logger.error(f"Ошибка сохранения заявки VK: {e}")
             await _notify_admins(name, phone)

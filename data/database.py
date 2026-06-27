@@ -93,8 +93,12 @@ def init_db():
                     phone TEXT,
                     source TEXT,
                     username TEXT,
+                    user_id TEXT,
                     created_at TIMESTAMP DEFAULT NOW()
                 )
+            """)
+            cur.execute("""
+                ALTER TABLE bookings ADD COLUMN IF NOT EXISTS user_id TEXT
             """)
         conn.commit()
 
@@ -295,17 +299,46 @@ def get_logo() -> bytes | None:
 
 # ── Заявки на запись ──────────────────────────────────────────────────────────
 
-def save_booking(name: str, phone: str, source: str, username: str = "") -> int:
+def save_booking(name: str, phone: str, source: str, username: str = "",
+                 user_id: str = "") -> int:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO bookings (name, phone, source, username) "
-                "VALUES (%s, %s, %s, %s) RETURNING id",
-                (name, phone, source, username),
+                "INSERT INTO bookings (name, phone, source, username, user_id) "
+                "VALUES (%s, %s, %s, %s, %s) RETURNING id",
+                (name, phone, source, username, user_id),
             )
             bid = cur.fetchone()[0]
         conn.commit()
     return bid
+
+
+def get_bookings(limit: int = 50):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, name, phone, source, username, created_at "
+                "FROM bookings ORDER BY created_at DESC LIMIT %s",
+                (limit,),
+            )
+            return cur.fetchall()
+
+
+def get_bookings_stats():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM bookings")
+            total = cur.fetchone()[0]
+            cur.execute(
+                "SELECT COUNT(*) FROM bookings "
+                "WHERE created_at >= NOW() - INTERVAL '1 day'"
+            )
+            today = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM bookings WHERE source='telegram'")
+            tg = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM bookings WHERE source='vk'")
+            vk = cur.fetchone()[0]
+        return {"total": total, "today": today, "telegram": tg, "vk": vk}
 
 
 # ── Фото для постов ───────────────────────────────────────────────────────────
