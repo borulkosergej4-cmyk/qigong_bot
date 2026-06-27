@@ -7,6 +7,23 @@ import shutil
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
+
+def _get_ffmpeg() -> str:
+    path = shutil.which("ffmpeg")
+    if path:
+        return path
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        pass
+    raise RuntimeError(
+        "ffmpeg не найден. Добавь imageio-ffmpeg в requirements.txt или установи ffmpeg системно."
+    )
+
+
+_FFMPEG = _get_ffmpeg()
+
 W, H = 720, 1280
 FPS = 30
 
@@ -535,7 +552,7 @@ def render_announcement(class_type: str, trainer: str, date: str, time: str,
 
 def _extract_bg_frames(video_path: str, n_frames: int, out_dir: str) -> bool:
     cmd = [
-        "ffmpeg", "-y", "-stream_loop", "-1",
+        _FFMPEG, "-y", "-stream_loop", "-1",
         "-i", video_path,
         "-vf", "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280",
         "-r", str(FPS),
@@ -547,7 +564,7 @@ def _extract_bg_frames(video_path: str, n_frames: int, out_dir: str) -> bool:
 
 
 def _extract_bg_audio(video_path: str, out_path: str) -> bool:
-    cmd = ["ffmpeg", "-y", "-i", video_path, "-vn", "-acodec", "aac", "-b:a", "128k", out_path]
+    cmd = [_FFMPEG, "-y", "-i", video_path, "-vn", "-acodec", "aac", "-b:a", "128k", out_path]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     return r.returncode == 0 and Path(out_path).exists()
 
@@ -558,7 +575,7 @@ def _stitch(frames_dir: str, n_frames: int, output: str, audio_path: str | None 
     if audio_path and Path(audio_path).exists():
         fade_start = max(0.0, duration - 1.5)
         cmd = [
-            "ffmpeg", "-y",
+            _FFMPEG, "-y",
             "-framerate", str(FPS),
             "-i", f"{frames_dir}/f%04d.jpg",
             "-stream_loop", "-1", "-i", audio_path,
@@ -572,7 +589,7 @@ def _stitch(frames_dir: str, n_frames: int, output: str, audio_path: str | None 
         ]
     else:
         cmd = [
-            "ffmpeg", "-y",
+            _FFMPEG, "-y",
             "-framerate", str(FPS),
             "-i", f"{frames_dir}/f%04d.jpg",
             "-vframes", str(n_frames),
