@@ -156,6 +156,11 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_type = update.effective_chat.type
+
+    # Посты из канала — игнорируем полностью
+    if chat_type == "channel":
+        return
+
     is_group = chat_type in ("group", "supergroup")
 
     if is_group:
