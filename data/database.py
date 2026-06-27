@@ -36,8 +36,9 @@ def init_db():
                     created_at TIMESTAMP DEFAULT NOW()
                 )
             """)
+            # Индекс для производительности (не уникальный — могут быть старые дубли по month)
             cur.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS content_plan_month_idx ON content_plan (month)"
+                "CREATE INDEX IF NOT EXISTS content_plan_month_idx ON content_plan (month)"
             )
 
             cur.execute("""
@@ -151,14 +152,24 @@ def save_content_plan(month: str, items: str) -> int:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO content_plan (month, items) VALUES (%s, %s) "
-                "ON CONFLICT (month) DO UPDATE SET items=EXCLUDED.items, approved=FALSE "
-                "RETURNING id",
-                (month, items),
+                "SELECT id FROM content_plan WHERE month=%s ORDER BY created_at DESC LIMIT 1",
+                (month,),
             )
             row = cur.fetchone()
+            if row:
+                plan_id = row[0]
+                cur.execute(
+                    "UPDATE content_plan SET items=%s, approved=FALSE WHERE id=%s",
+                    (items, plan_id),
+                )
+            else:
+                cur.execute(
+                    "INSERT INTO content_plan (month, items) VALUES (%s, %s) RETURNING id",
+                    (month, items),
+                )
+                plan_id = cur.fetchone()[0]
         conn.commit()
-    return row[0] if row else 0
+    return plan_id
 
 
 def get_content_plan(month: str):
