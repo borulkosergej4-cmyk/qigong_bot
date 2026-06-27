@@ -7,6 +7,9 @@ CLUB_ID = "2391"
 BASE_URL = f"https://mobifitness.ru/api/v8/club/{CLUB_ID}"
 TOKEN = "b6d7d372-8ea5-46c9-991f-8bf4d5deeecc"
 
+# Показывать только занятия этого тренера (регистронезависимо, частичное совпадение)
+TRAINER_FILTER = "Сергей"
+
 HEADERS = {
     "authorization": f"Bearer {TOKEN}",
     "accept": "application/json, text/javascript, */*; q=0.01",
@@ -85,6 +88,11 @@ def format_schedule(data: dict) -> str:
         name = _normalize_title(activity.get("title", "Занятие"))
         trainers = item.get("trainers", [])
         trainer_name = trainers[0].get("title", "") if trainers else ""
+
+        # Показываем только занятия Сергея
+        if TRAINER_FILTER and TRAINER_FILTER.lower() not in trainer_name.lower():
+            continue
+
         dt_str = item.get("datetime", "")
         length = item.get("length", 0)
 
@@ -113,15 +121,13 @@ def format_schedule(data: dict) -> str:
             places_str = ""
 
         line = f"  {time_str} — {name}"
-        if trainer_name:
-            line += f" ({trainer_name})"
         if places_str:
             line += f" [{places_str}]"
 
         by_day.setdefault(date_key, []).append(line)
 
     if not by_day:
-        return "Нет предстоящих занятий на этой неделе."
+        return "Нет предстоящих занятий Сергея на этой неделе."
 
     lines = []
     for date_key in sorted(by_day):
