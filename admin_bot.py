@@ -1180,6 +1180,17 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     state = USER_STATE.get(uid)
 
+    # Состояния, которые ожидают только текст — игнорируем нетекстовые сообщения
+    _TEXT_ONLY_STATES = {
+        "awaiting_post_topic", "awaiting_cp_topic", "waiting_plan_feedback",
+        "awaiting_sub_name", "awaiting_sub_url", "awaiting_sub_desc",
+        "awaiting_schedule_time", "reel_motivation", "reel_promo", "reel_announcement",
+    }
+    if state in _TEXT_ONLY_STATES:
+        if not update.message or not update.message.text:
+            await update.message.reply_text("Отправь текстовое сообщение.")
+            return
+
     # ── Тема поста ────────────────────────────────────────────────────────────
     if state == "awaiting_post_topic":
         topic = update.message.text.strip()
@@ -1190,10 +1201,10 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # ── Тема контент-плана ────────────────────────────────────────────────────
     elif state == "awaiting_cp_topic":
-        focus = update.message.text.strip()
-        month = USER_GENERATED.get(uid, {}).get("cp_month", datetime.now().strftime("%Y-%m"))
-        await update.message.reply_text("Создаю контент-план...")
         try:
+            focus = update.message.text.strip()
+            month = USER_GENERATED.get(uid, {}).get("cp_month", datetime.now().strftime("%Y-%m"))
+            await update.message.reply_text("Создаю контент-план...")
             prompt = (
                 f"Создай контент-план на месяц {month} для Telegram-канала и группы ВКонтакте "
                 f"об оздоровительном цигун и ушу. Фокус месяца: {focus or 'общее оздоровление'}. "
@@ -1315,8 +1326,8 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # ── Reel: мотивация (1 шаг) ──────────────────────────────────────────────
     elif state == "reel_motivation":
-        USER_STATE.pop(uid, None)
         quote = update.message.text.strip()
+        USER_STATE.pop(uid, None)
         gen = USER_GENERATED.get(uid, {})
         gen.update({"quote": quote, "subtext": "@baguazhangspb", "caption": quote})
         USER_GENERATED[uid] = gen
@@ -1324,7 +1335,6 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # ── Reel: промо ──────────────────────────────────────────────────────────
     elif state == "reel_promo":
-        USER_STATE.pop(uid, None)
         import re as _re
         raw = update.message.text.strip()
         DEFAULT_CTA = "@baguazhangspb"
@@ -1355,6 +1365,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         gen.update({"headline": headline, "price": price, "subtext": subtext, "cta": cta,
                     "caption": f"{headline} — {price}"})
         USER_GENERATED[uid] = gen
+        USER_STATE.pop(uid, None)
         await _ask_bg_video(update, ctx, uid)
 
     # ── Reel: анонс занятия ───────────────────────────────────────────────────
@@ -1390,17 +1401,25 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         fname = getattr(doc, "file_name", None) or "bg_video.mp4"
         if not fname.lower().endswith(".mp4"):
             fname = "bg_video.mp4"
-        file = await doc.get_file()
-        buf = io.BytesIO()
-        await file.download_to_memory(buf)
-        data = buf.getvalue()
-        save_bg_video(fname, data)
-        p = VIDEOS_DIR / fname
-        p.write_bytes(data)
-        USER_STATE.pop(uid, None)
-        await update.message.reply_text(
-            f"✅ Видео-фон «{fname}» загружен.", reply_markup=_main_keyboard()
-        )
+        try:
+            file = await doc.get_file()
+            buf = io.BytesIO()
+            await file.download_to_memory(buf)
+            data = buf.getvalue()
+            save_bg_video(fname, data)
+            p = VIDEOS_DIR / fname
+            p.write_bytes(data)
+            USER_STATE.pop(uid, None)
+            await update.message.reply_text(
+                f"✅ Видео-фон «{fname}» загружен.", reply_markup=_main_keyboard()
+            )
+        except Exception as e:
+            logger.error(f"Ошибка загрузки видео: {e}")
+            await update.message.reply_text(
+                f"Не удалось загрузить видео: {e}\n\n"
+                "Попробуй отправить файл меньшего размера (до 20 МБ) или как документ.",
+                reply_markup=_back_keyboard("media_menu"),
+            )
 
     # ── Загрузка аудио ────────────────────────────────────────────────────────
     elif state == "awaiting_bg_audio":
