@@ -597,7 +597,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not _is_admin(update.effective_user.id):
         return
     await update.message.reply_text(
-        "Панель управления каналом 🌿 Оздоровительный цигун и ушу",
+        "Панель управления каналом 🌿 Целительный цигун и ушу",
         reply_markup=_main_keyboard(),
     )
 
@@ -1846,10 +1846,13 @@ async def _render_and_preview_reel(update: Update, ctx: ContextTypes.DEFAULT_TYP
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def post_init(app: Application):
-    init_db()
+    try:
+        init_db()
+    except Exception as e:
+        logger.error(f"init_db failed (non-fatal): {e}")
     asyncio.create_task(_restore_media())
     asyncio.create_task(_scheduled_post_loop(app.bot))
-    logger.info("admin_bot запущен")
+    logger.info("admin_bot запущен v4")
 
 
 def main():

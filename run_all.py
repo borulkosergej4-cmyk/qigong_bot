@@ -85,12 +85,19 @@ async def run_vk_bot():
     await run()
 
 
+async def _safe_run(name: str, coro):
+    try:
+        await coro
+    except Exception as e:
+        logger.error(f"Сервис '{name}' упал: {e}", exc_info=True)
+
+
 async def main():
     await asyncio.gather(
-        run_dashboard(),
-        run_admin_bot(),
-        run_client_bot(),
-        run_vk_bot(),
+        _safe_run("dashboard", run_dashboard()),
+        _safe_run("admin_bot", run_admin_bot()),
+        _safe_run("client_bot", run_client_bot()),
+        _safe_run("vk_bot", run_vk_bot()),
     )
 
 
