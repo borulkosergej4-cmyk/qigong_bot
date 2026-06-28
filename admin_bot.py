@@ -101,7 +101,7 @@ LOGO_PATH = STATIC_DIR / "logo.png"
 # AI-генерация текста
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _generate_text(user_prompt: str, system: str | None = None, max_tokens: int = 1200) -> str:
+def _generate_text(user_prompt: str, system: str | None = None, max_tokens: int = 2000) -> str:
     sys = system or POST_SYSTEM_PROMPT
     messages = [
         {"role": "system", "content": sys},
@@ -253,10 +253,7 @@ async def _publish_any(bot: Bot, post_id: int, platform: str, text: str,
     ok = True
     if platform in ("post_tg", "post_both"):
         try:
-            if photo_bytes:
-                await bot.send_photo(chat_id=TG_CHANNEL, photo=photo_bytes, caption=text)
-            else:
-                await bot.send_message(chat_id=TG_CHANNEL, text=text)
+            await _publish_post_to_tg(bot, text, photo_bytes)
         except Exception as e:
             logger.error(f"TG publish error post {post_id}: {e}")
             ok = False
@@ -1524,7 +1521,6 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             gen["_reel_bg_tmp"] = str(tmp_path)  # пометка для удаления после рендера
             USER_GENERATED[uid] = gen
             USER_STATE.pop(uid, None)
-            await update.message.reply_text(f"✅ Видео загружено. Теперь выбери аудио.")
             await _ask_audio(update, ctx, uid, gen)
         except Exception as e:
             logger.error(f"Ошибка загрузки Reel-фона: {e}")
@@ -1695,29 +1691,31 @@ async def _ask_audio(update: Update, ctx: ContextTypes.DEFAULT_TYPE, uid: int, g
     for i, a in enumerate(audios[:8]):
         btns.append([InlineKeyboardButton(f"🎵 {Path(a).stem}", callback_data=f"reel_audio_{i}")])
     btns.append([InlineKeyboardButton("◀ Назад", callback_data="create_reel")])
+    kb = InlineKeyboardMarkup(btns)
     q = update.callback_query
-    if not q:
-        return
-    try:
-        await q.edit_message_text("🎵 Выбери аудио для Reel:", reply_markup=InlineKeyboardMarkup(btns))
-    except Exception as e:
-        logger.warning(f"_ask_audio edit failed: {e}")
+    if q:
         try:
-            await ctx.bot.send_message(uid, "🎵 Выбери аудио для Reel:", reply_markup=InlineKeyboardMarkup(btns))
+            await q.edit_message_text("🎵 Выбери аудио для Reel:", reply_markup=kb)
+            return
         except Exception:
             pass
+    await ctx.bot.send_message(uid, "🎵 Выбери аудио для Reel:", reply_markup=kb)
 
 
 async def _ask_duration(update: Update, ctx: ContextTypes.DEFAULT_TYPE, uid: int):
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("15 сек", callback_data="reel_dur_15")],
+        [InlineKeyboardButton("30 сек", callback_data="reel_dur_30")],
+        [InlineKeyboardButton("60 сек", callback_data="reel_dur_60")],
+    ])
     q = update.callback_query
-    await q.edit_message_text(
-        "Выбери длительность Reel:",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("15 сек", callback_data="reel_dur_15")],
-            [InlineKeyboardButton("30 сек", callback_data="reel_dur_30")],
-            [InlineKeyboardButton("60 сек", callback_data="reel_dur_60")],
-        ]),
-    )
+    if q:
+        try:
+            await q.edit_message_text("Выбери длительность Reel:", reply_markup=kb)
+            return
+        except Exception:
+            pass
+    await ctx.bot.send_message(uid, "Выбери длительность Reel:", reply_markup=kb)
 
 
 async def _render_and_preview_reel(update: Update, ctx: ContextTypes.DEFAULT_TYPE, uid: int):
