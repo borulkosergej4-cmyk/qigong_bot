@@ -597,7 +597,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not _is_admin(update.effective_user.id):
         return
     await update.message.reply_text(
-        "Панель управления каналом 🌿 Целительный цигун и ушу",
+        "Панель управления каналом 🌿 Оздоровительный цигун и ушу",
         reply_markup=_main_keyboard(),
     )
 
