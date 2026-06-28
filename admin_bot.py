@@ -655,6 +655,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("💬 Мотивация / цитата", callback_data="reel_motivation")],
                 [InlineKeyboardButton("🎁 Акция / оффер",      callback_data="reel_promo")],
                 [InlineKeyboardButton("📢 Анонс занятия",      callback_data="reel_announcement")],
+                [InlineKeyboardButton("✍️ Свой шаблон",        callback_data="reel_custom")],
                 [InlineKeyboardButton("◀ Назад",               callback_data="main_menu")],
             ]),
         )
@@ -696,6 +697,22 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "<i>Примеры:</i>\n"
             "<code>Цигун Пяти животных / Сергей / 5 июля / 10:00</code>\n\n"
             "<code>Бадуаньцзин / Сергей / суббота / 9:00 / 8 мест / Парк Сосновка</code>",
+            parse_mode="HTML",
+            reply_markup=_back_keyboard("create_reel"),
+        )
+
+    elif data == "reel_custom":
+        USER_GENERATED[uid] = {"reel_type": "custom"}
+        USER_STATE[uid] = "reel_custom"
+        await q.edit_message_text(
+            "✍️ <b>Свой шаблон</b>\n\n"
+            "Напиши любой текст — он появится по центру экрана.\n\n"
+            "Хочешь добавить подпись внизу — добавь <code>|</code> и текст:\n"
+            "<code>Главный текст | мелкая подпись</code>\n\n"
+            "<i>Примеры:</i>\n"
+            "<code>Тренировки в парке Сосновка</code>\n"
+            "<code>по субботам и вторникам!</code>\n\n"
+            "<code>Занятие по цигун | 7 июля в 10:00</code>",
             parse_mode="HTML",
             reply_markup=_back_keyboard("create_reel"),
         )
@@ -1261,7 +1278,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "awaiting_post_topic", "awaiting_cp_topic", "waiting_plan_feedback",
         "awaiting_sub_name", "awaiting_sub_url", "awaiting_sub_desc",
         "awaiting_schedule_time", "reel_motivation", "reel_promo", "reel_announcement",
-        "awaiting_post_text_edit",
+        "reel_custom", "awaiting_post_text_edit",
     }
     if state in _TEXT_ONLY_STATES:
         if not update.message or not update.message.text:
@@ -1467,6 +1484,22 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "tagline":    parts[5] if len(parts) > 5 else "",
             "caption":    f"{parts[0]} · {parts[1]} · {parts[2]} {parts[3]}",
         })
+        USER_GENERATED[uid] = gen
+        await _ask_bg_video(update, ctx, uid)
+
+    # ── Reel: свой шаблон ────────────────────────────────────────────────────
+    elif state == "reel_custom":
+        raw = update.message.text.strip()
+        if "|" in raw:
+            parts = raw.split("|", 1)
+            quote   = parts[0].strip()
+            subtext = parts[1].strip()
+        else:
+            quote   = raw
+            subtext = "@baguazhangspb"
+        USER_STATE.pop(uid, None)
+        gen = USER_GENERATED.get(uid, {})
+        gen.update({"quote": quote, "subtext": subtext, "caption": quote})
         USER_GENERATED[uid] = gen
         await _ask_bg_video(update, ctx, uid)
 
@@ -1729,7 +1762,7 @@ async def _render_and_preview_reel(update: Update, ctx: ContextTypes.DEFAULT_TYP
     await q.edit_message_text("Рендерю Reel, подожди...")
     try:
         out = tempfile.mktemp(suffix=".mp4")
-        if reel_type == "motivation":
+        if reel_type in ("motivation", "custom"):
             fn = lambda: render_motivation(
                 gen["quote"], gen["subtext"], out,
                 bg_video=bg_video, audio_path=audio_path, duration_secs=duration,
