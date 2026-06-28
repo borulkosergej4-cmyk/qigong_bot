@@ -408,7 +408,8 @@ def _publish_keyboard(platform: str):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"✅ Опубликовать ({label})", callback_data=f"pub_now_{platform}")],
         [InlineKeyboardButton("⏰ По расписанию",           callback_data=f"pub_sched_{platform}")],
-        [InlineKeyboardButton("✏️ Редактировать текст",    callback_data=f"edit_text_{platform}")],
+        [InlineKeyboardButton("📷 Поменять фото",           callback_data="pub_change_photo")],
+        [InlineKeyboardButton("✏️ Редактировать текст",    callback_data="pub_edit_text")],
         [InlineKeyboardButton("🔄 Переделать",              callback_data="pub_regenerate")],
         [InlineKeyboardButton("◀ Главное меню",            callback_data="main_menu")],
     ])
@@ -584,9 +585,16 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return
         lines = []
         for pid, platform, text, published, sched_at, created_at in rows:
-            msk = (created_at + timedelta(hours=3)).strftime("%d.%m %H:%M") if created_at else "?"
-            status = "✅" if published else "⏳"
-            lines.append(f"{status} #{pid} [{platform}] {msk}\n{text[:80]}…")
+            created_msk = (created_at + timedelta(hours=3)).strftime("%d.%m %H:%M") if created_at else "?"
+            if published:
+                status = "✅ опубликован"
+            elif sched_at:
+                sched_msk = (sched_at + timedelta(hours=3)).strftime("%d.%m %H:%M")
+                status = f"📅 запланирован на {sched_msk}"
+            else:
+                status = "📝 черновик"
+            snippet = (text or "")[:80]
+            lines.append(f"#{pid} [{platform}] {created_msk}\n{status}\n{snippet}…")
         await q.edit_message_text("\n\n".join(lines), reply_markup=_back_keyboard())
 
     # ── Создать пост ──────────────────────────────────────────────────────────
@@ -735,6 +743,11 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 await ctx.bot.send_message(uid, "⚠️ VK Клип не удалось опубликовать.")
             else:
                 sent = True
+        if sent:
+            caption = gen.get("caption", "Reel")
+            db_platform = {"tg": "post_tg", "vk": "post_vk", "both": "post_both"}.get(platform, "post_tg")
+            post_id = save_post(db_platform, f"[Reel] {caption}", photo_bytes=None, scheduled_at=None)
+            mark_post_published(post_id)
         msg = "✅ Reel опубликован!" if sent else "⚠️ Не удалось опубликовать."
         await q.edit_message_text(msg, reply_markup=_main_keyboard())
 
@@ -1116,6 +1129,29 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("Генерирую заново...")
         await _do_generate_post(update, ctx, uid, topic)
 
+    elif data == "pub_change_photo":
+        gen = USER_GENERATED.get(uid, {})
+        if not gen.get("post_text"):
+            await q.edit_message_text("Сначала создай пост.", reply_markup=_main_keyboard())
+            return
+        USER_STATE[uid] = "awaiting_post_photo_replace"
+        await q.edit_message_text(
+            "Отправь новое фото для поста (JPEG или PNG).\n\n"
+            "Можно отправить как фото или как файл.",
+            reply_markup=_back_keyboard(),
+        )
+
+    elif data == "pub_edit_text":
+        gen = USER_GENERATED.get(uid, {})
+        if not gen.get("post_text"):
+            await q.edit_message_text("Сначала создай пост.", reply_markup=_main_keyboard())
+            return
+        USER_STATE[uid] = "awaiting_post_text_edit"
+        await q.edit_message_text(
+            "Отправь новый текст поста. Старый текст будет заменён полностью.",
+            reply_markup=_back_keyboard(),
+        )
+
     elif data == "pub_platform_choice":
         gen = USER_GENERATED.get(uid, {})
         raw = gen.get("platform", "post_tg").replace("post_", "")
@@ -1185,6 +1221,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "awaiting_post_topic", "awaiting_cp_topic", "waiting_plan_feedback",
         "awaiting_sub_name", "awaiting_sub_url", "awaiting_sub_desc",
         "awaiting_schedule_time", "reel_motivation", "reel_promo", "reel_announcement",
+        "awaiting_post_text_edit",
     }
     if state in _TEXT_ONLY_STATES:
         if not update.message or not update.message.text:
@@ -1316,7 +1353,8 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             USER_STATE.pop(uid, None)
             msk_str = dt_msk.strftime("%d.%m.%Y %H:%M")
             await update.message.reply_text(
-                f"✅ Пост #{post_id} запланирован на {msk_str} МСК.",
+                f"✅ Пост #{post_id} запланирован на {msk_str} МСК.\n\n"
+                "Найдёшь его в «📋 История постов» со статусом 📅.",
                 reply_markup=_main_keyboard(),
             )
         except ValueError:
@@ -1488,6 +1526,52 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             reply_markup=_back_keyboard("media_menu"),
         )
 
+    # ── Замена фото для текущего поста ───────────────────────────────────────
+    elif state == "awaiting_post_photo_replace":
+        photo_msg = update.message.photo
+        doc = update.message.document
+        if photo_msg:
+            file = await photo_msg[-1].get_file()
+        elif doc and (getattr(doc, "file_name", "") or "").lower().endswith((".jpg", ".jpeg", ".png")):
+            file = await doc.get_file()
+        else:
+            await update.message.reply_text("Отправь фото (JPEG или PNG).")
+            return
+        buf = io.BytesIO()
+        await file.download_to_memory(buf)
+        new_photo = buf.getvalue()
+        gen = USER_GENERATED.get(uid, {})
+        gen["photo_bytes"] = new_photo
+        USER_GENERATED[uid] = gen
+        USER_STATE.pop(uid, None)
+        platform = gen.get("platform", "post_tg").replace("post_", "")
+        post_text = gen.get("post_text", "")
+        preview = post_text[:1000] + ("..." if len(post_text) > 1000 else "")
+        await update.message.reply_photo(
+            photo=new_photo,
+            caption=preview,
+            reply_markup=_publish_keyboard(platform),
+        )
+
+    # ── Редактирование текста поста ───────────────────────────────────────────
+    elif state == "awaiting_post_text_edit":
+        if not update.message.text:
+            await update.message.reply_text("Отправь текстовое сообщение с новым текстом поста.")
+            return
+        new_text = update.message.text.strip()
+        gen = USER_GENERATED.get(uid, {})
+        gen["post_text"] = new_text
+        USER_GENERATED[uid] = gen
+        USER_STATE.pop(uid, None)
+        platform = gen.get("platform", "post_tg").replace("post_", "")
+        photo = gen.get("photo_bytes")
+        preview = new_text[:1000] + ("..." if len(new_text) > 1000 else "")
+        kb = _publish_keyboard(platform)
+        if photo:
+            await update.message.reply_photo(photo=photo, caption=preview, reply_markup=kb)
+        else:
+            await update.message.reply_text(preview, reply_markup=kb)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Генерация поста
@@ -1501,29 +1585,18 @@ async def _do_generate_post(update: Update, ctx: ContextTypes.DEFAULT_TYPE,
             f"Напиши пост для канала о цигун и ушу на тему: {topic}",
         )
         photo = await _get_photo("qigong tai chi meditation")
-        USER_GENERATED[uid]["post_text"] = text
-        USER_GENERATED[uid]["photo_bytes"] = photo
+        gen = USER_GENERATED.get(uid, {})
+        gen.update({"post_text": text, "photo_bytes": photo, "post_topic": topic})
+        USER_GENERATED[uid] = gen
         USER_STATE.pop(uid, None)
 
+        platform = gen.get("platform", "post_tg").replace("post_", "")
         preview = text[:1000] + ("..." if len(text) > 1000 else "")
+        kb = _publish_keyboard(platform)
         if photo:
-            await ctx.bot.send_photo(
-                uid, photo=photo, caption=preview,
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📤 Опубликовать / расписание",
-                                         callback_data="pub_platform_choice")],
-                    [InlineKeyboardButton("◀ Отмена", callback_data="main_menu")],
-                ]),
-            )
+            await ctx.bot.send_photo(uid, photo=photo, caption=preview, reply_markup=kb)
         else:
-            await ctx.bot.send_message(
-                uid, preview,
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📤 Опубликовать / расписание",
-                                         callback_data="pub_platform_choice")],
-                    [InlineKeyboardButton("◀ Отмена", callback_data="main_menu")],
-                ]),
-            )
+            await ctx.bot.send_message(uid, preview, reply_markup=kb)
     except Exception as e:
         await ctx.bot.send_message(uid, f"Ошибка генерации: {e}",
                                    reply_markup=_main_keyboard())
