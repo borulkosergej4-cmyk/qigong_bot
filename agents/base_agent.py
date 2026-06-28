@@ -199,6 +199,10 @@ class BaseAgent:
         # Нормализация названия комплекса
         text = re.sub(r'\bДа\s+[Уу]\b', 'Да ВУ', text)
 
+        # Цигун — несклоняемое слово: убираем падежные окончания
+        for _form in ('цигуна', 'цигуну', 'цигуном', 'цигуне', 'цигуны'):
+            text = re.sub(rf'\b{_form}\b', 'цигун', text, flags=re.IGNORECASE)
+
         if '\n' not in text:
             text = re.sub(r'([.!?])\s+([А-ЯЁ«(])', r'\1\n\n\2', text)
         return text.strip()

@@ -402,6 +402,14 @@ def _back_keyboard(cb: str = "main_menu"):
     return InlineKeyboardMarkup([[InlineKeyboardButton("◀ Назад", callback_data=cb)]])
 
 
+async def _safe_edit(q, text: str, reply_markup=None, **kwargs):
+    """edit_message_text падает на фото-сообщениях — тогда отправляем новым сообщением."""
+    try:
+        await q.edit_message_text(text, reply_markup=reply_markup, **kwargs)
+    except Exception:
+        await q.message.reply_text(text, reply_markup=reply_markup, **kwargs)
+
+
 def _publish_keyboard(platform: str):
     """Кнопки публикации после генерации поста."""
     label = {"tg": "Telegram", "vk": "ВКонтакте", "both": "обе платформы"}.get(platform, platform)
@@ -1082,7 +1090,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         text = gen.get("post_text", "")
         photo = gen.get("photo_bytes")
         if not text:
-            await q.edit_message_text("Текст не найден.", reply_markup=_main_keyboard())
+            await _safe_edit(q, "Текст не найден.", reply_markup=_main_keyboard())
             return
         ok_tg = ok_vk = True
         if platform in ("tg", "both"):
@@ -1106,13 +1114,14 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             msg = f"⚠️ Ошибка VK: {vk_err}"
         else:
             msg = "⚠️ Частично опубликовано."
-        await q.edit_message_text(msg, reply_markup=_main_keyboard())
+        await _safe_edit(q, msg, reply_markup=_main_keyboard())
 
     elif data.startswith("pub_sched_"):
         platform = data.replace("pub_sched_", "")
         USER_GENERATED[uid]["sched_platform"] = platform
         USER_STATE[uid] = "awaiting_schedule_time"
-        await q.edit_message_text(
+        await _safe_edit(
+            q,
             "Введи дату и время публикации (МСК):\n"
             "Формат: ДД.ММ ЧЧ:ММ\n"
             "Пример: 28.06 10:00",
@@ -1123,19 +1132,20 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         gen = USER_GENERATED.get(uid, {})
         topic = gen.get("post_topic", "")
         if not topic:
-            await q.edit_message_text("Тема не найдена.", reply_markup=_main_keyboard())
+            await _safe_edit(q, "Тема не найдена.", reply_markup=_main_keyboard())
             return
         USER_STATE[uid] = "generating_post"
-        await q.edit_message_text("Генерирую заново...")
+        await _safe_edit(q, "Генерирую заново...")
         await _do_generate_post(update, ctx, uid, topic)
 
     elif data == "pub_change_photo":
         gen = USER_GENERATED.get(uid, {})
         if not gen.get("post_text"):
-            await q.edit_message_text("Сначала создай пост.", reply_markup=_main_keyboard())
+            await _safe_edit(q, "Сначала создай пост.", reply_markup=_main_keyboard())
             return
         USER_STATE[uid] = "awaiting_post_photo_replace"
-        await q.edit_message_text(
+        await _safe_edit(
+            q,
             "Отправь новое фото для поста (JPEG или PNG).\n\n"
             "Можно отправить как фото или как файл.",
             reply_markup=_back_keyboard(),
@@ -1144,10 +1154,11 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif data == "pub_edit_text":
         gen = USER_GENERATED.get(uid, {})
         if not gen.get("post_text"):
-            await q.edit_message_text("Сначала создай пост.", reply_markup=_main_keyboard())
+            await _safe_edit(q, "Сначала создай пост.", reply_markup=_main_keyboard())
             return
         USER_STATE[uid] = "awaiting_post_text_edit"
-        await q.edit_message_text(
+        await _safe_edit(
+            q,
             "Отправь новый текст поста. Старый текст будет заменён полностью.",
             reply_markup=_back_keyboard(),
         )
