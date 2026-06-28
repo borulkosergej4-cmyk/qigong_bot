@@ -410,6 +410,39 @@ async def _safe_edit(q, text: str, reply_markup=None, **kwargs):
         await q.message.reply_text(text, reply_markup=reply_markup, **kwargs)
 
 
+async def _preview_post(bot, uid: int, photo: bytes | None, text: str, kb):
+    """Показывает превью поста администратору. Полный текст без обрезания."""
+    if photo and len(text) <= 1024:
+        await bot.send_photo(uid, photo=photo, caption=text, reply_markup=kb)
+    elif photo:
+        await bot.send_photo(uid, photo=photo)
+        await bot.send_message(uid, text, reply_markup=kb)
+    else:
+        await bot.send_message(uid, text, reply_markup=kb)
+
+
+async def _reply_preview(message, photo: bytes | None, text: str, kb):
+    """reply_*-версия _preview_post: для ответа в on_message-обработчиках."""
+    if photo and len(text) <= 1024:
+        await message.reply_photo(photo=io.BytesIO(photo), caption=text, reply_markup=kb)
+    elif photo:
+        await message.reply_photo(photo=io.BytesIO(photo))
+        await message.reply_text(text, reply_markup=kb)
+    else:
+        await message.reply_text(text, reply_markup=kb)
+
+
+async def _publish_post_to_tg(bot, text: str, photo: bytes | None):
+    """Публикует пост в TG-канал с учётом лимита подписи 1024 символа."""
+    if photo and len(text) <= 1024:
+        await bot.send_photo(TG_CHANNEL, photo=photo, caption=text)
+    elif photo:
+        await bot.send_photo(TG_CHANNEL, photo=photo)
+        await bot.send_message(TG_CHANNEL, text)
+    else:
+        await bot.send_message(TG_CHANNEL, text)
+
+
 def _publish_keyboard(platform: str):
     """Кнопки публикации после генерации поста."""
     label = {"tg": "Telegram", "vk": "ВКонтакте", "both": "обе платформы"}.get(platform, platform)
@@ -531,15 +564,8 @@ async def _generate_plan_post(q, uid: int, item: dict, platform: str):
         }
         USER_STATE.pop(uid, None)
 
-        caption = text + f"\n\n─────────────────\n📤 Опубликовать в {plat_label}?"
         kb = _publish_keyboard(platform)
-        if photo and len(caption) <= 1024:
-            await q.message.reply_photo(photo=BytesIO(photo), caption=caption, reply_markup=kb)
-        elif photo:
-            await q.message.reply_photo(photo=BytesIO(photo))
-            await q.message.reply_text(text + f"\n\n─────────────────\n📤 Опубликовать в {plat_label}?", reply_markup=kb)
-        else:
-            await q.message.reply_text(text + f"\n\n─────────────────\n📤 Опубликовать в {plat_label}?", reply_markup=kb)
+        await _reply_preview(q.message, photo, text, kb)
 
     except Exception as e:
         logger.error(f"_generate_plan_post error: {e}", exc_info=True)
@@ -1095,10 +1121,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         ok_tg = ok_vk = True
         if platform in ("tg", "both"):
             try:
-                if photo:
-                    await ctx.bot.send_photo(TG_CHANNEL, photo=photo, caption=text)
-                else:
-                    await ctx.bot.send_message(TG_CHANNEL, text=text)
+                await _publish_post_to_tg(ctx.bot, text, photo)
             except Exception as e:
                 ok_tg = False
                 await ctx.bot.send_message(uid, f"Ошибка TG: {e}")
@@ -1557,12 +1580,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         USER_STATE.pop(uid, None)
         platform = gen.get("platform", "post_tg").replace("post_", "")
         post_text = gen.get("post_text", "")
-        preview = post_text[:1000] + ("..." if len(post_text) > 1000 else "")
-        await update.message.reply_photo(
-            photo=new_photo,
-            caption=preview,
-            reply_markup=_publish_keyboard(platform),
-        )
+        await _reply_preview(update.message, new_photo, post_text, _publish_keyboard(platform))
 
     # ── Редактирование текста поста ───────────────────────────────────────────
     elif state == "awaiting_post_text_edit":
@@ -1576,12 +1594,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         USER_STATE.pop(uid, None)
         platform = gen.get("platform", "post_tg").replace("post_", "")
         photo = gen.get("photo_bytes")
-        preview = new_text[:1000] + ("..." if len(new_text) > 1000 else "")
-        kb = _publish_keyboard(platform)
-        if photo:
-            await update.message.reply_photo(photo=photo, caption=preview, reply_markup=kb)
-        else:
-            await update.message.reply_text(preview, reply_markup=kb)
+        await _reply_preview(update.message, photo, new_text, _publish_keyboard(platform))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1602,12 +1615,8 @@ async def _do_generate_post(update: Update, ctx: ContextTypes.DEFAULT_TYPE,
         USER_STATE.pop(uid, None)
 
         platform = gen.get("platform", "post_tg").replace("post_", "")
-        preview = text[:1000] + ("..." if len(text) > 1000 else "")
         kb = _publish_keyboard(platform)
-        if photo:
-            await ctx.bot.send_photo(uid, photo=photo, caption=preview, reply_markup=kb)
-        else:
-            await ctx.bot.send_message(uid, preview, reply_markup=kb)
+        await _preview_post(ctx.bot, uid, photo, text, kb)
     except Exception as e:
         await ctx.bot.send_message(uid, f"Ошибка генерации: {e}",
                                    reply_markup=_main_keyboard())
