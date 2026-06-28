@@ -3,7 +3,7 @@ import os
 import secrets
 from datetime import timedelta
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
@@ -345,3 +345,21 @@ def dashboard(username: str = Depends(require_auth)):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.post("/webhook/admin_bot")
+async def admin_bot_webhook(request: Request):
+    import app_state
+    from telegram import Update
+
+    if not app_state.admin_application:
+        return {"ok": False, "error": "bot not ready"}
+
+    secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if app_state.webhook_secret and secret != app_state.webhook_secret:
+        raise HTTPException(status_code=403)
+
+    data = await request.json()
+    update = Update.de_json(data, app_state.admin_application.bot)
+    await app_state.admin_application.process_update(update)
+    return {"ok": True}

@@ -1,13 +1,14 @@
 """
 Запускает все сервисы параллельно:
 1. dashboard (FastAPI) — Railway ждёт открытый порт
-2. admin_bot (Telegram) — управление контентом
+2. admin_bot (Telegram) — управление контентом (webhook на Railway, polling локально)
 3. bot (Telegram) — Конфуций отвечает клиентам
 4. vk_bot (VK) — Конфуций отвечает в VK
 """
 import asyncio
 import logging
 import os
+import secrets as _secrets
 
 import uvicorn
 
@@ -28,6 +29,7 @@ async def run_dashboard():
 
 
 async def run_admin_bot():
+    import app_state
     from admin_bot import Application, ADMIN_BOT_TOKEN, post_init, cmd_start, on_callback, on_message
     from telegram.ext import CommandHandler, CallbackQueryHandler, MessageHandler, filters
 
@@ -35,20 +37,35 @@ async def run_admin_bot():
         logger.error("ADMIN_BOT_TOKEN не задан — admin_bot не запущен")
         return
 
-    app = (
+    telegram_app = (
         Application.builder()
         .token(ADMIN_BOT_TOKEN)
         .post_init(post_init)
         .build()
     )
-    app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CallbackQueryHandler(on_callback))
-    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, on_message))
+    telegram_app.add_handler(CommandHandler("start", cmd_start))
+    telegram_app.add_handler(CallbackQueryHandler(on_callback))
+    telegram_app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, on_message))
 
-    logger.info("Admin bot: запускаю polling...")
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling(drop_pending_updates=True)
+    app_state.admin_application = telegram_app
+    app_state.webhook_secret = _secrets.token_hex(16)
+
+    await telegram_app.initialize()
+    await telegram_app.start()
+
+    RAILWAY_DOMAIN = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip()
+    if RAILWAY_DOMAIN:
+        webhook_url = f"https://{RAILWAY_DOMAIN}/webhook/admin_bot"
+        await telegram_app.bot.set_webhook(
+            url=webhook_url,
+            secret_token=app_state.webhook_secret,
+            drop_pending_updates=True,
+        )
+        logger.info(f"Admin bot: webhook → {webhook_url}")
+    else:
+        await telegram_app.updater.start_polling(drop_pending_updates=True)
+        logger.info("Admin bot: polling mode (локально)")
+
     await asyncio.Event().wait()
 
 
