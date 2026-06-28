@@ -536,6 +536,7 @@ async def _generate_plan_post(q, uid: int, item: dict, platform: str):
     length_hint = "до 900 символов" if platform == "tg" else "600–1000 символов"
 
     user_prompt = (
+        f"{_current_date_hint()}\n\n"
         f"Тема поста: {topic}\n"
         f"День в контент-плане: {day}\n"
         f"Формат: {hint}\n\n"
@@ -1670,12 +1671,24 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # Генерация поста
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _current_date_hint() -> str:
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone(timedelta(hours=3)))
+    months_ru = ["января","февраля","марта","апреля","мая","июня",
+                 "июля","августа","сентября","октября","ноября","декабря"]
+    m = now.month
+    season = ("зима" if m in (12,1,2) else "весна" if m in (3,4,5)
+              else "лето" if m in (6,7,8) else "осень")
+    return f"Сегодня {now.day} {months_ru[m-1]} {now.year} ({season})."
+
+
 async def _do_generate_post(update: Update, ctx: ContextTypes.DEFAULT_TYPE,
                             uid: int, topic: str):
     try:
+        date_hint = _current_date_hint()
         text = await asyncio.to_thread(
             _generate_text,
-            f"Напиши пост для канала о цигун и ушу на тему: {topic}",
+            f"{date_hint}\n\nНапиши пост для канала о цигун и ушу на тему: {topic}",
         )
         photo = await _get_photo("qigong tai chi meditation")
         gen = USER_GENERATED.get(uid, {})
