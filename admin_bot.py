@@ -808,7 +808,12 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                                           reply_markup=_main_keyboard())
                 return
         if platform in ("vk", "both"):
+            wait_msg = await ctx.bot.send_message(uid, "⏳ Загружаю видео в VK...")
             vk_ok, vk_err = await _vk_clip(video_path)
+            try:
+                await wait_msg.delete()
+            except Exception:
+                pass
             if not vk_ok:
                 await ctx.bot.send_message(uid, f"⚠️ VK Клип не удалось опубликовать.\n\nПричина: {vk_err}")
             else:
@@ -819,7 +824,8 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             post_id = save_post(db_platform, f"[Reel] {caption}", photo_bytes=None, scheduled_at=None)
             mark_post_published(post_id)
         msg = "✅ Reel опубликован!" if sent else "⚠️ Не удалось опубликовать."
-        await q.edit_message_text(msg, reply_markup=_main_keyboard())
+        # Используем send_message — edit_message_text может истечь пока идёт загрузка в VK
+        await ctx.bot.send_message(uid, msg, reply_markup=_main_keyboard())
 
     # ── Контент-план ─────────────────────────────────────────────────────────
     elif data == "content_plan":
