@@ -22,7 +22,13 @@ def _get_ffmpeg() -> str:
     )
 
 
-_FFMPEG = _get_ffmpeg()
+_FFMPEG: str | None = None
+
+def _ffmpeg() -> str:
+    global _FFMPEG
+    if _FFMPEG is None:
+        _FFMPEG = _get_ffmpeg()
+    return _FFMPEG
 
 W, H = 720, 1280
 FPS = 30
@@ -588,7 +594,7 @@ def render_announcement(class_type: str, trainer: str, date: str, time: str,
 
 def _extract_bg_frames(video_path: str, n_frames: int, out_dir: str) -> bool:
     cmd = [
-        _FFMPEG, "-y", "-stream_loop", "-1",
+        _ffmpeg(), "-y", "-stream_loop", "-1",
         "-i", video_path,
         "-vf", "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280",
         "-r", str(FPS),
@@ -600,7 +606,7 @@ def _extract_bg_frames(video_path: str, n_frames: int, out_dir: str) -> bool:
 
 
 def _extract_bg_audio(video_path: str, out_path: str) -> bool:
-    cmd = [_FFMPEG, "-y", "-i", video_path, "-vn", "-acodec", "aac", "-b:a", "128k", out_path]
+    cmd = [_ffmpeg(), "-y", "-i", video_path, "-vn", "-acodec", "aac", "-b:a", "128k", out_path]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     return r.returncode == 0 and Path(out_path).exists()
 
@@ -611,7 +617,7 @@ def _stitch(frames_dir: str, n_frames: int, output: str, audio_path: str | None 
     if audio_path and Path(audio_path).exists():
         fade_start = max(0.0, duration - 1.5)
         cmd = [
-            _FFMPEG, "-y",
+            _ffmpeg(), "-y",
             "-framerate", str(FPS),
             "-i", f"{frames_dir}/f%04d.jpg",
             "-stream_loop", "-1", "-i", audio_path,
@@ -625,7 +631,7 @@ def _stitch(frames_dir: str, n_frames: int, output: str, audio_path: str | None 
         ]
     else:
         cmd = [
-            _FFMPEG, "-y",
+            _ffmpeg(), "-y",
             "-framerate", str(FPS),
             "-i", f"{frames_dir}/f%04d.jpg",
             "-vframes", str(n_frames),
