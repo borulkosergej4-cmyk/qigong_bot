@@ -301,10 +301,18 @@ def render_motivation(quote: str, subtext: str, output_path: str,
             if not _extract_bg_frames(bg_video, n, bg_dir):
                 shutil.rmtree(bg_dir, ignore_errors=True)
                 bg_dir = None
-        font_q  = _font(72, bold=True)
         font_s  = _font(28, bold=False)
+        max_w = W - 100
+
+        # авто-размер: уменьшаем шрифт пока текст не уложится в ≤3 строки
+        font_q = _font(72, bold=True)
         lh = 90
-        max_w = W - 130
+        for _sz in (96, 80, 66, 54, 44, 36):
+            _f = _font(_sz, bold=True)
+            if len(_wrap(quote, _f, max_w)) <= 3:
+                font_q = _f
+                lh = max(int(_sz * 1.28), _sz + 14)
+                break
 
         all_lines = _wrap(quote, font_q, max_w)
         block_h = len(all_lines) * lh

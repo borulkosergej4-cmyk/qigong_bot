@@ -199,21 +199,28 @@ async def _vk_post(text: str, photo_bytes: bytes | None = None) -> tuple[bool, s
 
 
 async def _vk_clip(video_path: str) -> bool:
-    if not VK_TOKEN or not VK_GROUP_ID:
+    token = VK_USER_TOKEN or VK_TOKEN  # user token required for video upload
+    if not token or not VK_GROUP_ID:
+        logger.error("VK clip: VK_USER_TOKEN and VK_TOKEN both empty")
         return False
     try:
-        async with httpx.AsyncClient(timeout=60) as cl:
+        async with httpx.AsyncClient(timeout=120) as cl:
             r = await cl.get(
                 "https://api.vk.com/method/video.save",
                 params={
                     "group_id": VK_GROUP_ID, "name": "Reel",
                     "is_private": 0, "wallpost": 1,
-                    "access_token": VK_TOKEN, "v": "5.131",
+                    "access_token": token, "v": "5.131",
                 },
             )
-            upload_url = r.json()["response"]["upload_url"]
+            rj = r.json()
+            if "error" in rj:
+                logger.error(f"VK video.save error: {rj['error']}")
+                return False
+            upload_url = rj["response"]["upload_url"]
             with open(video_path, "rb") as f:
-                await cl.post(upload_url, files={"video_file": f})
+                up = await cl.post(upload_url, files={"video_file": f}, timeout=120)
+            logger.info(f"VK clip upload: {up.text[:300]}")
         return True
     except Exception as e:
         logger.error(f"VK clip error: {e}")
