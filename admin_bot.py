@@ -704,6 +704,15 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
     # ── Видео-фон для Reel ────────────────────────────────────────────────────
+    elif data == "reel_bg_upload":
+        USER_STATE[uid] = "awaiting_reel_bg_upload"
+        await q.edit_message_text(
+            "Отправь .mp4 файл как видео-фон для этого Reel.\n\n"
+            "Видео будет использовано только для текущего Reel и не сохранится в библиотеку.\n"
+            "Если хочешь сохранить — загрузи через Медиа → Видео-фон.",
+            reply_markup=_back_keyboard("create_reel"),
+        )
+
     elif data.startswith("reel_bg_"):
         choice = data.replace("reel_bg_", "")
         gen = USER_GENERATED.get(uid, {})
@@ -1493,6 +1502,37 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 reply_markup=_back_keyboard("media_menu"),
             )
 
+    # ── Загрузка фона для текущего Reel (одноразовый, не сохраняется) ────────
+    elif state == "awaiting_reel_bg_upload":
+        if not (update.message.document or update.message.video):
+            await update.message.reply_text("Отправь .mp4 файл как видео или документ.")
+            return
+        doc = update.message.document or update.message.video
+        fname = getattr(doc, "file_name", None) or "reel_bg_tmp.mp4"
+        if not fname.lower().endswith(".mp4"):
+            fname = "reel_bg_tmp.mp4"
+        try:
+            file = await doc.get_file()
+            buf = io.BytesIO()
+            await file.download_to_memory(buf)
+            data = buf.getvalue()
+            # Сохраняем во временный файл (не в БД)
+            tmp_path = VIDEOS_DIR / f"_tmp_{uid}_{fname}"
+            tmp_path.write_bytes(data)
+            gen = USER_GENERATED.get(uid, {})
+            gen["bg_video"] = str(tmp_path)
+            gen["_reel_bg_tmp"] = str(tmp_path)  # пометка для удаления после рендера
+            USER_GENERATED[uid] = gen
+            USER_STATE.pop(uid, None)
+            await update.message.reply_text(f"✅ Видео загружено. Теперь выбери аудио.")
+            await _ask_audio(update, ctx, uid, gen)
+        except Exception as e:
+            logger.error(f"Ошибка загрузки Reel-фона: {e}")
+            await update.message.reply_text(
+                f"Не удалось загрузить: {e}\n\nПопробуй файл меньшего размера или отправь как документ.",
+                reply_markup=_back_keyboard("create_reel"),
+            )
+
     # ── Загрузка аудио ────────────────────────────────────────────────────────
     elif state == "awaiting_bg_audio":
         doc = update.message.document or update.message.audio
@@ -1633,6 +1673,7 @@ async def _ask_bg_video(update: Update, ctx: ContextTypes.DEFAULT_TYPE, uid: int
     gen["reel_video_options"] = [str(v) for v in videos[:8]]
     USER_GENERATED[uid] = gen
     btns = [[InlineKeyboardButton("🎨 Градиент (без видео)", callback_data="reel_bg_gradient")]]
+    btns.append([InlineKeyboardButton("📤 Загрузить своё видео", callback_data="reel_bg_upload")])
     for i, v in enumerate(videos[:8]):
         btns.append([InlineKeyboardButton(f"🎥 {v.stem}", callback_data=f"reel_bg_{i}")])
     btns.append([InlineKeyboardButton("◀ Назад", callback_data="create_reel")])
@@ -1718,6 +1759,14 @@ async def _render_and_preview_reel(update: Update, ctx: ContextTypes.DEFAULT_TYP
 
         gen["video_path"] = out
         USER_GENERATED[uid] = gen
+
+        # Удаляем временный фон, если был загружен одноразово
+        tmp_bg = gen.get("_reel_bg_tmp")
+        if tmp_bg:
+            try:
+                Path(tmp_bg).unlink(missing_ok=True)
+            except Exception:
+                pass
 
         with open(out, "rb") as f:
             await ctx.bot.send_video(
