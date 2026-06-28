@@ -198,33 +198,37 @@ async def _vk_post(text: str, photo_bytes: bytes | None = None) -> tuple[bool, s
         return False, str(e)
 
 
-async def _vk_clip(video_path: str) -> bool:
-    token = VK_USER_TOKEN or VK_TOKEN  # user token required for video upload
-    if not token or not VK_GROUP_ID:
-        logger.error("VK clip: VK_USER_TOKEN and VK_TOKEN both empty")
-        return False
+async def _vk_clip(video_path: str) -> tuple[bool, str]:
+    token = VK_USER_TOKEN or VK_TOKEN
+    if not token:
+        return False, "VK_USER_TOKEN не задан"
+    if not VK_GROUP_ID:
+        return False, "VK_GROUP_ID не задан"
     try:
+        group_id = VK_GROUP_ID.lstrip("-")  # API требует положительный ID
         async with httpx.AsyncClient(timeout=120) as cl:
             r = await cl.get(
                 "https://api.vk.com/method/video.save",
                 params={
-                    "group_id": VK_GROUP_ID, "name": "Reel",
+                    "group_id": group_id, "name": "Reel",
                     "is_private": 0, "wallpost": 1,
                     "access_token": token, "v": "5.131",
                 },
             )
             rj = r.json()
             if "error" in rj:
-                logger.error(f"VK video.save error: {rj['error']}")
-                return False
+                err = rj["error"]
+                msg = f"video.save: [{err.get('error_code')}] {err.get('error_msg')}"
+                logger.error(f"VK clip error: {msg}")
+                return False, msg
             upload_url = rj["response"]["upload_url"]
             with open(video_path, "rb") as f:
                 up = await cl.post(upload_url, files={"video_file": f}, timeout=120)
-            logger.info(f"VK clip upload: {up.text[:300]}")
-        return True
+            logger.info(f"VK clip upload response: {up.text[:300]}")
+        return True, ""
     except Exception as e:
-        logger.error(f"VK clip error: {e}")
-        return False
+        logger.error(f"VK clip exception: {e}")
+        return False, str(e)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -804,8 +808,9 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                                           reply_markup=_main_keyboard())
                 return
         if platform in ("vk", "both"):
-            if not await _vk_clip(video_path):
-                await ctx.bot.send_message(uid, "⚠️ VK Клип не удалось опубликовать.")
+            vk_ok, vk_err = await _vk_clip(video_path)
+            if not vk_ok:
+                await ctx.bot.send_message(uid, f"⚠️ VK Клип не удалось опубликовать.\n\nПричина: {vk_err}")
             else:
                 sent = True
         if sent:
