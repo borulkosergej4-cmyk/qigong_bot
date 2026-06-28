@@ -2,7 +2,12 @@
 nixPkgs = ["python312", "ffmpeg", "dejavu_fonts", "fontconfig"]
 
 [phases.install]
-cmds = ["pip install -r requirements.txt"]
+cmds = [
+  "pip install -r requirements.txt",
+  "mkdir -p fonts",
+  "find /nix/store -name 'DejaVuSans.ttf' 2>/dev/null | head -1 | xargs -I{} cp {} fonts/DejaVuSans.ttf && echo 'Copied DejaVuSans.ttf' || echo 'DejaVuSans.ttf not found'",
+  "find /nix/store -name 'DejaVuSans-Bold.ttf' 2>/dev/null | head -1 | xargs -I{} cp {} fonts/DejaVuSans-Bold.ttf && echo 'Copied DejaVuSans-Bold.ttf' || echo 'DejaVuSans-Bold.ttf not found'"
+]
 
 [start]
 cmd = "python run_all.py"

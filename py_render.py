@@ -115,47 +115,34 @@ def _paste_logo(frame: Image.Image, logo: "Image.Image | None",
 
 # ── Шрифты ────────────────────────────────────────────────────────────────
 _FONT_CACHE: dict = {}
-_FC_CACHE:   dict = {}
-
-def _fc_match(pattern: str) -> str | None:
-    """Ищет шрифт через fontconfig (работает на Nix/Railway после dejavu_fonts)."""
-    if pattern in _FC_CACHE:
-        return _FC_CACHE[pattern]
-    try:
-        r = subprocess.run(
-            ["fc-match", "--format=%{file}", pattern],
-            capture_output=True, text=True, timeout=5,
-        )
-        path = r.stdout.strip() if r.returncode == 0 else ""
-        result = path if path and Path(path).exists() else None
-    except Exception:
-        result = None
-    _FC_CACHE[pattern] = result
-    return result
+_PROJECT_DIR = Path(__file__).parent
 
 
 def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     key = (size, bold)
     if key in _FONT_CACHE:
         return _FONT_CACHE[key]
+
     if bold:
-        static = [
+        candidates = [
+            # 1. Скопировано из Nix store при сборке (nixpacks.toml)
+            str(_PROJECT_DIR / "fonts" / "DejaVuSans-Bold.ttf"),
+            # 2. Стандартные Linux-пути
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
             "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf",
             "/usr/share/fonts/truetype/freefont/FreeSerifBold.ttf",
         ]
-        fc_patterns = ["DejaVuSans-Bold", "LiberationSans-Bold", "sans-serif:bold"]
     else:
-        static = [
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        candidates = [
+            str(_PROJECT_DIR / "fonts" / "DejaVuSans.ttf"),
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
             "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
         ]
-        fc_patterns = ["DejaVuSans", "LiberationSans", "sans-serif"]
 
-    for p in static:
+    # 3. Поиск по всему Nix store (медленно, только если ничего не нашли выше)
+    for p in candidates:
         if Path(p).exists():
             try:
                 f = ImageFont.truetype(p, size)
@@ -164,18 +151,24 @@ def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
             except Exception:
                 pass
 
-    # Nix/Railway: шрифты в store, путь находим через fontconfig
-    for pattern in fc_patterns:
-        p = _fc_match(pattern)
-        if p:
+    # 4. Ищем в /nix/store (последний резерв перед bitmap)
+    name = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
+    nix_store = Path("/nix/store")
+    if nix_store.exists():
+        for p in nix_store.glob(f"*dejavu*/**/{name}"):
             try:
-                f = ImageFont.truetype(p, size)
+                f = ImageFont.truetype(str(p), size)
                 _FONT_CACHE[key] = f
+                # Кешируем в fonts/ чтобы следующий поиск был быстрее
+                dst = _PROJECT_DIR / "fonts" / name
+                dst.parent.mkdir(exist_ok=True)
+                import shutil as _sh
+                _sh.copy2(str(p), str(dst))
                 return f
             except Exception:
                 pass
 
-    # Последний резерв — bitmap без кириллицы
+    # 5. Bitmap без кириллицы — хуже квадратов нет, но хоть что-то
     f = ImageFont.load_default(size)
     _FONT_CACHE[key] = f
     return f
