@@ -103,6 +103,29 @@ def init_db():
             cur.execute("""
                 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS lesson TEXT
             """)
+
+            # YouTube-видео
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS youtube_videos (
+                    id           SERIAL PRIMARY KEY,
+                    youtube_id   TEXT,
+                    title        TEXT,
+                    description  TEXT,
+                    tags         TEXT,
+                    format       TEXT,
+                    script       TEXT,
+                    status       TEXT DEFAULT 'pending',
+                    thumbnail    BYTEA,
+                    views        INTEGER DEFAULT 0,
+                    likes        INTEGER DEFAULT 0,
+                    comments     INTEGER DEFAULT 0,
+                    published_at TIMESTAMP,
+                    created_at   TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                ALTER TABLE youtube_videos ADD COLUMN IF NOT EXISTS format TEXT
+            """)
         conn.commit()
 
 
@@ -368,3 +391,56 @@ def delete_post_photo(photo_id: int):
         with conn.cursor() as cur:
             cur.execute("DELETE FROM saved_post_photos WHERE id=%s", (photo_id,))
         conn.commit()
+
+
+# ── YouTube-видео ─────────────────────────────────────────────────────────────
+
+def save_youtube_video(
+    title: str, description: str, tags: str, format_: str,
+    script: str, thumbnail: bytes | None = None,
+) -> int:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO youtube_videos "
+                "(title, description, tags, format, script, thumbnail, status) "
+                "VALUES (%s, %s, %s, %s, %s, %s, 'pending') RETURNING id",
+                (title, description, tags, format_, script, thumbnail),
+            )
+            vid = cur.fetchone()[0]
+        conn.commit()
+    return vid
+
+
+def mark_youtube_published(video_db_id: int, youtube_id: str):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE youtube_videos SET status='published', youtube_id=%s, "
+                "published_at=NOW() WHERE id=%s",
+                (youtube_id, video_db_id),
+            )
+        conn.commit()
+
+
+def get_youtube_videos(limit: int = 30):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, youtube_id, title, format, status, views, likes, "
+                "published_at, created_at "
+                "FROM youtube_videos ORDER BY created_at DESC LIMIT %s",
+                (limit,),
+            )
+            return cur.fetchall()
+
+
+def get_youtube_video(video_db_id: int):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, youtube_id, title, description, tags, format, script, "
+                "thumbnail, status FROM youtube_videos WHERE id=%s",
+                (video_db_id,),
+            )
+            return cur.fetchone()

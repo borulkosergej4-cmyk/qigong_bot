@@ -559,6 +559,33 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/youtube/callback", response_class=HTMLResponse)
+async def youtube_oauth_callback(request: Request, code: str = "", error: str = ""):
+    """Принимает OAuth2-код от Google, сохраняет токены в БД."""
+    if error:
+        return HTMLResponse(
+            f"<h2>Ошибка авторизации YouTube</h2><p>{error}</p>",
+            status_code=400,
+        )
+    if not code:
+        return HTMLResponse("<h2>Код авторизации отсутствует</h2>", status_code=400)
+    try:
+        import youtube_api as _yt
+        _yt.exchange_code(code)
+        return HTMLResponse("""
+            <html><body style="font-family:sans-serif;padding:40px;text-align:center">
+            <h2>✅ YouTube авторизован!</h2>
+            <p>Канал «Дыхание движения» подключён.</p>
+            <p>Можешь закрыть эту страницу и вернуться в Telegram-бот.</p>
+            </body></html>
+        """)
+    except Exception as e:
+        return HTMLResponse(
+            f"<h2>Ошибка обмена токена</h2><p>{e}</p>",
+            status_code=500,
+        )
+
+
 @app.post("/webhook/admin_bot")
 async def admin_bot_webhook(request: Request):
     import app_state

@@ -44,7 +44,10 @@ from data.database import (
     delete_subscription_link, save_bg_video, get_bg_videos, delete_bg_video,
     save_bg_audio, get_bg_audios, delete_bg_audio, save_logo, get_logo,
     save_post_photo, get_post_photos, delete_post_photo,
+    save_youtube_video, mark_youtube_published, get_youtube_videos,
 )
+import youtube_api as _yt
+from agents.youtube_agent import youtube_master as _yt_master
 from data.knowledge import CONTENT_PLAN_SYSTEM_PROMPT, POST_SYSTEM_PROMPT
 from py_render import (
     clear_logo_cache, render_announcement, render_motivation, render_promo,
@@ -392,10 +395,23 @@ def _main_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📝 Создать пост",      callback_data="create_post")],
         [InlineKeyboardButton("🎬 Создать Reel",       callback_data="create_reel")],
+        [InlineKeyboardButton("▶️ YouTube",            callback_data="youtube_menu")],
         [InlineKeyboardButton("📅 Контент-план",       callback_data="content_plan")],
         [InlineKeyboardButton("🔗 Подписные ссылки",   callback_data="subscriptions")],
         [InlineKeyboardButton("🎥 Медиа",              callback_data="media_menu")],
         [InlineKeyboardButton("📋 История постов",     callback_data="posts_history")],
+    ])
+
+
+def _youtube_keyboard():
+    auth_status = "✅ Авторизован" if _yt.is_authorized() else "🔑 Авторизоваться"
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(auth_status,              callback_data="yt_auth")],
+        [InlineKeyboardButton("✍️ Подготовить Shorts",  callback_data="yt_prepare_shorts")],
+        [InlineKeyboardButton("🎬 Подготовить видео",   callback_data="yt_prepare_video")],
+        [InlineKeyboardButton("📊 Аналитика канала",    callback_data="yt_analytics")],
+        [InlineKeyboardButton("📋 История видео",       callback_data="yt_history")],
+        [InlineKeyboardButton("◀ Главное меню",         callback_data="main_menu")],
     ])
 
 def _platform_keyboard(prefix: str = "platform"):
@@ -639,6 +655,99 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         USER_GENERATED.pop(uid, None)
         await q.edit_message_text("Панель управления", reply_markup=_main_keyboard())
 
+    # ── YouTube ───────────────────────────────────────────────────────────────
+    elif data == "youtube_menu":
+        yt_ok = _yt.is_authorized()
+        status_line = "Канал: Дыхание движения\nСтатус: " + ("✅ авторизован" if yt_ok else "⚠️ не авторизован — нажми «Авторизоваться»")
+        await _safe_edit(q, f"▶️ YouTube\n\n{status_line}", reply_markup=_youtube_keyboard())
+
+    elif data == "yt_auth":
+        if not _yt.is_configured():
+            await _safe_edit(q,
+                "❌ Не заданы переменные окружения:\n"
+                "YOUTUBE_CLIENT_ID\nYOUTUBE_CLIENT_SECRET\nYOUTUBE_REDIRECT_URI\n\n"
+                "Добавь их в Railway и перезапусти бот.",
+                reply_markup=_back_keyboard("youtube_menu"),
+            )
+            return
+        if _yt.is_authorized():
+            await _safe_edit(q, "✅ YouTube уже авторизован.", reply_markup=_youtube_keyboard())
+            return
+        url = _yt.get_auth_url()
+        await _safe_edit(q,
+            f"Для авторизации YouTube:\n\n"
+            f"1. Перейди по ссылке:\n{url}\n\n"
+            f"2. Войди в Google-аккаунт канала «Дыхание движения»\n"
+            f"3. После авторизации будешь перенаправлен на дашборд\n\n"
+            f"Авторизация автоматически сохранится.",
+            reply_markup=_back_keyboard("youtube_menu"),
+        )
+
+    elif data == "yt_analytics":
+        await _safe_edit(q, "📊 Загружаю аналитику...", reply_markup=_back_keyboard("youtube_menu"))
+        report = await asyncio.to_thread(_yt_master.get_analytics_report)
+        await ctx.bot.send_message(uid, f"📊 Аналитика канала\n\n{report}",
+                                   reply_markup=_youtube_keyboard())
+
+    elif data == "yt_prepare_shorts":
+        USER_GENERATED[uid] = {"yt_format": "shorts"}
+        USER_STATE[uid] = "yt_awaiting_topic"
+        await _safe_edit(q,
+            "✍️ Введи тему Shorts (до 60 сек). Примеры:\n\n"
+            "• «Одно упражнение Бадуаньцзин — разведение лука»\n"
+            "• «Почему цигун помогает при стрессе»\n"
+            "• «3 дыхательных цикла перед сном»",
+            reply_markup=_back_keyboard("youtube_menu"),
+        )
+
+    elif data == "yt_prepare_video":
+        USER_GENERATED[uid] = {"yt_format": "lesson"}
+        USER_STATE[uid] = "yt_awaiting_topic"
+        await _safe_edit(q,
+            "🎬 Введи тему полного видео. Примеры:\n\n"
+            "• «Бадуаньцзин полный комплекс для начинающих»\n"
+            "• «У Цинь Си — пять упражнений животных»\n"
+            "• «Что такое цигун и с чего начать»",
+            reply_markup=_back_keyboard("youtube_menu"),
+        )
+
+    elif data == "yt_history":
+        rows = get_youtube_videos(15)
+        if not rows:
+            await _safe_edit(q, "История видео пуста.", reply_markup=_back_keyboard("youtube_menu"))
+            return
+        lines = []
+        for vid_id, yt_id, title, fmt, status, views, likes, pub_at, cr_at in rows:
+            cr_msk = (cr_at + timedelta(hours=3)).strftime("%d.%m %H:%M") if cr_at else "?"
+            yt_link = f"https://youtu.be/{yt_id}" if yt_id else "—"
+            icon = "✅" if status == "published" else "📝"
+            lines.append(f"{icon} {cr_msk} [{fmt}]\n{title}\n{yt_link}\n👁 {views} ❤️ {likes}")
+        await _safe_edit(q, "\n\n".join(lines), reply_markup=_back_keyboard("youtube_menu"))
+
+    elif data.startswith("yt_pub_"):
+        # Публикация подготовленного видео на YouTube
+        video_db_id = int(data.replace("yt_pub_", ""))
+        gen = USER_GENERATED.get(uid, {})
+        video_path = gen.get("video_path")
+        if not video_path or not Path(video_path).exists():
+            await ctx.bot.send_message(uid, "❌ Видео не найдено. Отрендери заново.",
+                                       reply_markup=_youtube_keyboard())
+            return
+        await ctx.bot.send_message(uid, "⏳ Загружаю видео на YouTube...")
+        try:
+            yt_id = await asyncio.to_thread(
+                _yt_master.publish_prepared, video_path, gen.get("yt_prepared", {})
+            )
+            await mark_youtube_published(video_db_id, yt_id)
+            await ctx.bot.send_message(
+                uid,
+                f"✅ Видео опубликовано!\nhttps://youtu.be/{yt_id}",
+                reply_markup=_youtube_keyboard(),
+            )
+        except Exception as e:
+            await ctx.bot.send_message(uid, f"❌ Ошибка загрузки: {e}",
+                                       reply_markup=_youtube_keyboard())
+
     # ── История постов ────────────────────────────────────────────────────────
     elif data == "posts_history":
         rows = get_posts_history(20)
@@ -658,6 +767,28 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             snippet = (text or "")[:80]
             lines.append(f"#{pid} [{platform}] {created_msk}\n{status}\n{snippet}…")
         await q.edit_message_text("\n\n".join(lines), reply_markup=_back_keyboard())
+
+    elif data.startswith("yt_show_script_"):
+        video_db_id = int(data.replace("yt_show_script_", ""))
+        gen = USER_GENERATED.get(uid, {})
+        script = gen.get("yt_prepared", {}).get("script", "")
+        if not script:
+            await _safe_edit(q, "Сценарий не найден.", reply_markup=_back_keyboard("youtube_menu"))
+            return
+        # Разбиваем длинный сценарий на части по 3800 символов
+        chunks = [script[i:i+3800] for i in range(0, len(script), 3800)]
+        for i, chunk in enumerate(chunks):
+            prefix = f"📜 Сценарий (часть {i+1}/{len(chunks)}):\n\n" if len(chunks) > 1 else "📜 Сценарий:\n\n"
+            kb = _back_keyboard("youtube_menu") if i == len(chunks) - 1 else None
+            await ctx.bot.send_message(uid, prefix + chunk, reply_markup=kb)
+
+    elif data == "yt_upload_prompt":
+        await _safe_edit(q,
+            "📤 Загрузи видеофайл (.mp4) ответным сообщением.\n\n"
+            "Бот загрузит его на YouTube с подготовленным заголовком, описанием и превью.",
+            reply_markup=_back_keyboard("youtube_menu"),
+        )
+        USER_STATE[uid] = "yt_awaiting_video_file"
 
     # ── Создать пост ──────────────────────────────────────────────────────────
     elif data == "create_post":
@@ -1316,12 +1447,65 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "awaiting_post_topic", "awaiting_cp_topic", "waiting_plan_feedback",
         "awaiting_sub_name", "awaiting_sub_url", "awaiting_sub_desc",
         "awaiting_schedule_time", "reel_motivation", "reel_promo", "reel_announcement",
-        "reel_custom", "awaiting_post_text_edit",
+        "reel_custom", "awaiting_post_text_edit", "yt_awaiting_topic",
     }
     if state in _TEXT_ONLY_STATES:
         if not update.message or not update.message.text:
             await update.message.reply_text("Отправь текстовое сообщение.")
             return
+
+    # ── YouTube: тема видео ───────────────────────────────────────────────────
+    if state == "yt_awaiting_topic":
+        topic = update.message.text.strip()
+        fmt   = USER_GENERATED.get(uid, {}).get("yt_format", "shorts")
+        USER_STATE[uid] = "yt_generating"
+        await update.message.reply_text(
+            f"⏳ Готовлю {'Shorts' if fmt == 'shorts' else 'видео'}: «{topic}»\n"
+            f"Пишу сценарий, SEO и превью — это займёт ~30 секунд..."
+        )
+        try:
+            prepared = await asyncio.to_thread(
+                _yt_master.prepare_video, topic, fmt
+            )
+            USER_GENERATED[uid]["yt_prepared"] = prepared
+            USER_STATE[uid] = "yt_ready"
+
+            # Сохраняем в БД
+            video_db_id = await asyncio.to_thread(
+                save_youtube_video,
+                prepared["title"],
+                prepared["description"],
+                ", ".join(prepared.get("tags", [])),
+                prepared["format"],
+                prepared["script"],
+                prepared.get("thumbnail_bytes"),
+            )
+            USER_GENERATED[uid]["yt_db_id"] = video_db_id
+
+            # Превью
+            thumb = prepared.get("thumbnail_bytes")
+            caption = (
+                f"✅ Готово!\n\n"
+                f"📌 Заголовок:\n{prepared['title']}\n\n"
+                f"📝 Описание (первые строки):\n{prepared['description'][:300]}...\n\n"
+                f"🏷 Теги: {', '.join(prepared.get('tags', [])[:6])}"
+            )
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("📜 Показать сценарий", callback_data=f"yt_show_script_{video_db_id}")],
+                [InlineKeyboardButton("📤 Загрузить видео и опубликовать", callback_data="yt_upload_prompt")],
+                [InlineKeyboardButton("◀ YouTube-меню",       callback_data="youtube_menu")],
+            ])
+            if thumb:
+                await ctx.bot.send_photo(uid, photo=BytesIO(thumb), caption=caption, reply_markup=kb)
+            else:
+                await ctx.bot.send_message(uid, caption, reply_markup=kb)
+
+        except Exception as e:
+            logger.error(f"YoutubeMaster error: {e}", exc_info=True)
+            await ctx.bot.send_message(uid, f"❌ Ошибка подготовки видео: {e}",
+                                       reply_markup=_youtube_keyboard())
+            USER_STATE.pop(uid, None)
+        return
 
     # ── Тема поста ────────────────────────────────────────────────────────────
     if state == "awaiting_post_topic":
@@ -1702,6 +1886,53 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         platform = gen.get("platform", "post_tg").replace("post_", "")
         photo = gen.get("photo_bytes")
         await _reply_preview(update.message, photo, new_text, _publish_keyboard(platform))
+
+    # ── YouTube: получение видеофайла для загрузки ────────────────────────────
+    elif state == "yt_awaiting_video_file":
+        msg = update.message
+        video = msg.video or msg.document
+        if not video:
+            await msg.reply_text("Отправь видеофайл (.mp4).",
+                                 reply_markup=_back_keyboard("youtube_menu"))
+            return
+        gen = USER_GENERATED.get(uid, {})
+        prepared = gen.get("yt_prepared")
+        video_db_id = gen.get("yt_db_id")
+        if not prepared:
+            await msg.reply_text("Сначала подготовь видео (тема → сценарий → SEO).",
+                                 reply_markup=_youtube_keyboard())
+            USER_STATE.pop(uid, None)
+            return
+
+        await msg.reply_text("⬇️ Скачиваю видеофайл...")
+        try:
+            tg_file = await ctx.bot.get_file(video.file_id)
+            tmp_path = Path(tempfile.mkdtemp()) / "yt_upload.mp4"
+            await tg_file.download_to_drive(str(tmp_path))
+
+            await ctx.bot.send_message(uid, "⏳ Загружаю на YouTube...")
+            yt_id = await asyncio.to_thread(
+                _yt_master.publish_prepared, str(tmp_path), prepared
+            )
+            if video_db_id:
+                await asyncio.to_thread(mark_youtube_published, video_db_id, yt_id)
+
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+            USER_STATE.pop(uid, None)
+            await ctx.bot.send_message(
+                uid,
+                f"✅ Видео опубликовано!\nhttps://youtu.be/{yt_id}",
+                reply_markup=_youtube_keyboard(),
+            )
+        except Exception as e:
+            logger.error(f"YouTube upload error: {e}", exc_info=True)
+            await ctx.bot.send_message(uid, f"❌ Ошибка загрузки: {e}",
+                                       reply_markup=_youtube_keyboard())
+            USER_STATE.pop(uid, None)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
