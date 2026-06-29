@@ -441,13 +441,32 @@ async def _reply_preview(message, photo: bytes | None, text: str, kb):
 
 
 async def _publish_post_to_tg(bot, text: str, photo: bytes | None):
-    """Публикует пост в TG-канал с учётом лимита подписи 1024 символа."""
-    if photo and len(text) <= 1024:
-        await bot.send_photo(TG_CHANNEL, photo=photo, caption=text)
-    elif photo:
-        await bot.send_photo(TG_CHANNEL, photo=photo)
+    """Публикует пост в TG-канал. Фото и текст всегда в одном сообщении."""
+    import html as _html
+    if not photo:
         await bot.send_message(TG_CHANNEL, text)
-    else:
+        return
+    if len(text) <= 1024:
+        await bot.send_photo(TG_CHANNEL, photo=photo, caption=text)
+        return
+    # Текст > 1024 симв.: невидимая ссылка на фото + полный текст одним сообщением
+    try:
+        # Загружаем фото через личку первого админа чтобы получить прямой URL
+        if ADMIN_IDS:
+            tmp = await bot.send_photo(ADMIN_IDS[0], photo=photo)
+            f = await bot.get_file(tmp.photo[-1].file_id)
+            url = f"https://api.telegram.org/file/bot{ADMIN_BOT_TOKEN}/{f.file_path}"
+            await tmp.delete()
+            await bot.send_message(
+                TG_CHANNEL,
+                f'<a href="{url}">&#8203;</a>{_html.escape(text)}',
+                parse_mode="HTML",
+            )
+        else:
+            raise ValueError("нет ADMIN_IDS")
+    except Exception:
+        # Fallback: всё же отправляем раздельно
+        await bot.send_photo(TG_CHANNEL, photo=photo)
         await bot.send_message(TG_CHANNEL, text)
 
 
