@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from data.database import (
     get_bookings, get_bookings_stats, get_posts_history, get_scheduled_posts,
     get_subscription_links, get_content_plan, get_bg_videos, get_bg_audios, get_logo,
+    init_db,
 )
 
 DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "qigong")
@@ -20,6 +21,11 @@ MOSCOW = timedelta(hours=3)
 
 app = FastAPI(docs_url=None, redoc_url=None)
 security = HTTPBasic()
+
+try:
+    init_db()
+except Exception:
+    pass
 
 if os.path.isdir("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
