@@ -49,21 +49,25 @@ def e(s) -> str:
     return _html.escape(str(s or ""))
 
 
+_BADGE_STYLE = 'style="display:inline-flex;align-items:center;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap"'
+
+
 def source_badge(source: str) -> str:
     if source == "telegram":
-        return '<span class="badge-tg">Telegram</span>'
+        return f'<span class="badge-tg" {_BADGE_STYLE}>Telegram</span>'
     if source == "vk":
-        return '<span class="badge-vk">ВКонтакте</span>'
-    return '<span class="badge-other">—</span>'
+        return f'<span class="badge-vk" {_BADGE_STYLE}>ВКонтакте</span>'
+    return f'<span class="badge-other" {_BADGE_STYLE}>—</span>'
 
 
 def platform_badge(p: str) -> str:
     p = (p or "").lower()
     if "vk" in p and "tg" in p:
-        return '<span class="badge-vk">ВКонтакте</span> <span class="badge-tg">Telegram</span>'
+        return (f'<span class="badge-vk" {_BADGE_STYLE}>ВКонтакте</span> '
+                f'<span class="badge-tg" {_BADGE_STYLE}>Telegram</span>')
     if "vk" in p:
-        return '<span class="badge-vk">ВКонтакте</span>'
-    return '<span class="badge-tg">Telegram</span>'
+        return f'<span class="badge-vk" {_BADGE_STYLE}>ВКонтакте</span>'
+    return f'<span class="badge-tg" {_BADGE_STYLE}>Telegram</span>'
 
 
 PAGE = """\
@@ -73,392 +77,489 @@ PAGE = """\
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="refresh" content="60">
-<title>Цигун и ушу — Панель управления</title>
+<title>Оздоровительный цигун — Панель управления</title>
 <style>
   :root {{
-    --green:      #2c5f2e;
-    --green-light:#e8f5e9;
-    --green-mid:  #4a8c4d;
-    --bg:         #f0f4f0;
-    --border:     #c8dfc9;
-    --text:       #1a3a1c;
-    --text-muted: #5a7a5c;
+    --bg:         #07090e;
+    --surface:    #0d1117;
+    --surface-2:  #111827;
+    --surface-3:  #1a2332;
+    --border:     #1c2536;
+    --border-2:   #243048;
+    --teal:       #0d9488;
+    --teal-2:     #14b8a6;
+    --teal-3:     #5eead4;
+    --gold:       #d97706;
+    --gold-2:     #f59e0b;
+    --red:        #ef4444;
+    --red-2:      #FF0000;
+    --blue:       #3b82f6;
+    --blue-2:     #60a5fa;
+    --purple:     #8b5cf6;
+    --purple-2:   #a78bfa;
+    --green:      #10b981;
+    --green-2:    #34d399;
+    --text:       #e2e8f0;
+    --text-2:     #94a3b8;
+    --text-3:     #475569;
+    --text-4:     #1e293b;
   }}
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{
-    font-family: system-ui, -apple-system, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
     background: var(--bg);
-    color: #1f1f1f;
-    min-height: 100vh;
+    color: var(--text);
+    min-height: 100dvh;
   }}
-  h1, h2, h3 {{ font-family: Georgia, serif; }}
 
-  /* Шапка */
+  /* ── Шапка ──────────────────────────────────────────────────── */
   .header-bar {{
-    background: linear-gradient(135deg, #1a3a1c 0%, #2c5f2e 60%, #4a8c4d 100%);
-    padding: 20px 28px;
-    display: flex; align-items: center; gap: 16px;
-    box-shadow: 0 3px 12px rgba(0,0,0,0.18);
+    background: linear-gradient(135deg,
+      #040b14 0%, #071526 40%, #091e35 70%, #0b2645 100%);
+    border-bottom: 1px solid var(--border-2);
+    padding: 0 28px;
+    display: flex; align-items: stretch; gap: 0;
+    position: sticky; top: 0; z-index: 100;
+    box-shadow: 0 1px 0 var(--border), 0 8px 32px rgba(0,0,0,0.4);
   }}
-  .header-bar h1 {{ font-size: 21px; font-weight: 700; color: #e8f5e9; letter-spacing: 0.01em; }}
-  .header-sub {{ font-size: 12px; color: #a5c8a7; margin-top: 4px; }}
-
-  /* Секции */
-  .section-label {{
-    font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
-    text-transform: uppercase; color: var(--text-muted);
-    margin: 24px 0 10px;
+  .header-brand {{
+    display: flex; align-items: center; gap: 14px;
+    padding: 18px 0; flex: 1;
   }}
-
-  /* Карточки */
-  .card {{
-    background: #fff;
-    border-radius: 14px;
-    border: 1px solid var(--border);
-    box-shadow: 0 2px 10px rgba(44,95,46,0.06);
-    overflow: hidden;
-    margin-bottom: 16px;
+  .header-logo {{
+    width: 42px; height: 42px; border-radius: 10px;
+    object-fit: cover; flex-shrink: 0;
+    border: 1px solid var(--border-2);
   }}
-  .card-header {{
-    padding: 12px 18px;
-    border-bottom: 1px solid var(--border);
-    background: linear-gradient(to right, #f4f9f4, #edf5ed);
-    display: flex; align-items: center; gap: 8px;
-  }}
-  .card-header h2 {{ font-size: 14px; font-weight: 700; color: var(--text); }}
-  .count-bubble {{
-    margin-left: auto;
-    background: var(--green);
-    color: #fff;
-    font-size: 11px; font-weight: 700;
-    min-width: 22px; height: 22px;
-    border-radius: 11px;
+  .header-logo-placeholder {{
+    width: 42px; height: 42px; border-radius: 10px; flex-shrink: 0;
+    background: linear-gradient(135deg, var(--teal) 0%, #065f52 100%);
     display: flex; align-items: center; justify-content: center;
-    padding: 0 7px;
+    font-size: 22px; border: 1px solid var(--border-2);
+  }}
+  .header-title {{ font-size: 17px; font-weight: 700; color: var(--text); letter-spacing: -0.01em; }}
+  .header-sub   {{ font-size: 11px; color: var(--text-3); margin-top: 3px; }}
+  .header-status {{
+    display: flex; align-items: center; gap: 6px;
+    padding: 18px 0 18px 24px; border-left: 1px solid var(--border);
+    margin-left: 16px;
+  }}
+  .dot-online {{ width: 8px; height: 8px; border-radius: 50%;
+                 background: var(--green-2);
+                 box-shadow: 0 0 0 2px rgba(52,211,153,0.25); flex-shrink: 0; }}
+  .dot-offline {{ width: 8px; height: 8px; border-radius: 50%;
+                  background: var(--text-3); flex-shrink: 0; }}
+  .header-status-text {{ font-size: 12px; font-weight: 600; color: var(--text-2); }}
+
+  /* ── Основной контейнер ─────────────────────────────────────── */
+  .wrap {{ max-width: 1160px; margin: 0 auto; padding: 24px 20px 40px; }}
+
+  /* ── Секция-заголовок ───────────────────────────────────────── */
+  .sec-label {{
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--text-3);
+    margin: 28px 0 12px; display: flex; align-items: center; gap: 8px;
+  }}
+  .sec-label::after {{
+    content: ''; flex: 1; height: 1px; background: var(--border);
   }}
 
-  /* Статистика */
-  .stat-card {{
-    background: #fff;
-    border-radius: 12px;
-    border: 1px solid var(--border);
-    padding: 16px 18px;
-    box-shadow: 0 1px 6px rgba(44,95,46,0.05);
-    display: flex; flex-direction: column; gap: 4px;
-  }}
-  .stat-label {{ font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }}
-  .stat-value {{ font-family: Georgia, serif; font-size: 32px; font-weight: 700; color: var(--green); line-height: 1; }}
-  .stat-value.today {{ color: #16a34a; }}
-  .stat-value.tg    {{ color: #0369a1; }}
-  .stat-value.vk    {{ color: #4338ca; }}
-  .stat-hint {{ font-size: 11px; color: var(--text-muted); }}
-
-  /* Строки */
-  .row-item {{
-    padding: 11px 18px;
-    border-bottom: 1px solid #f0f5f0;
-    display: flex; align-items: flex-start; gap: 10px;
-  }}
-  .row-item:last-child {{ border-bottom: none; }}
-  .row-item:hover {{ background: #f8fbf8; }}
-  .row-text {{ font-size: 13.5px; color: #1f1f1f; line-height: 1.45; }}
-  .row-meta {{ font-size: 12px; color: var(--text-muted); margin-top: 3px; }}
-  .row-time {{ font-size: 11.5px; color: var(--text-muted); white-space: nowrap; flex-shrink: 0; }}
-
-  /* Бейджи */
-  .badge-tg, .badge-vk, .badge-other,
-  .badge-pub, .badge-sched, .badge-wait,
-  .badge-ok, .badge-warn, .badge-cp-ok, .badge-cp-draft {{
-    display: inline-block; font-size: 11px; font-weight: 600;
-    padding: 2px 8px; border-radius: 20px; white-space: nowrap;
-  }}
-  .badge-tg      {{ background: #e0f2fe; color: #0369a1; }}
-  .badge-vk      {{ background: #e0e7ff; color: #3730a3; }}
-  .badge-other   {{ background: #f3f4f6; color: #6b7280; }}
-  .badge-pub     {{ background: #dcfce7; color: #15803d; }}
-  .badge-sched   {{ background: #fff7ed; color: #c2410c; }}
-  .badge-wait    {{ background: #f3f4f6; color: #6b7280; }}
-  .badge-ok      {{ background: #dcfce7; color: #15803d; }}
-  .badge-warn    {{ background: #fef9c3; color: #92400e; }}
-  .badge-cp-ok   {{ background: #dcfce7; color: #15803d; }}
-  .badge-cp-draft{{ background: #fff7ed; color: #c2410c; }}
-
-  /* Статус-панель */
-  .status-grid {{
+  /* ── KPI-полоса ─────────────────────────────────────────────── */
+  .kpi-strip {{
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-    padding: 14px 18px;
+    gap: 12px; margin-bottom: 0;
   }}
-  @media(min-width: 640px) {{
-    .status-grid {{ grid-template-columns: repeat(4, 1fr); }}
-  }}
-  .status-item {{ display: flex; flex-direction: column; gap: 4px; }}
-  .status-name {{ font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }}
-  .status-val  {{ font-size: 13px; font-weight: 600; color: var(--text); }}
+  @media(min-width:640px) {{ .kpi-strip {{ grid-template-columns: repeat(4, 1fr); }} }}
 
-  /* Контент-план */
-  .cp-item {{
-    display: flex; align-items: flex-start; gap: 10px;
-    padding: 9px 18px;
-    border-bottom: 1px solid #f0f5f0;
-    font-size: 13px;
+  .kpi-card {{
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    padding: 18px 20px;
+    display: flex; flex-direction: column; gap: 6px;
+    position: relative; overflow: hidden;
   }}
-  .cp-item:last-child {{ border-bottom: none; }}
-  .cp-day {{ min-width: 28px; font-weight: 700; color: var(--green); font-family: Georgia, serif; }}
-  .cp-topic {{ color: #1f1f1f; flex: 1; }}
-  .cp-fmt {{ font-size: 11px; color: var(--text-muted); }}
+  .kpi-card::before {{
+    content: ''; position: absolute; inset: 0;
+    background: var(--kpi-glow, transparent);
+    opacity: 0.07; pointer-events: none;
+  }}
+  .kpi-card.c-total  {{ background: var(--surface); --kpi-glow: var(--teal); }}
+  .kpi-card.c-today  {{ background: var(--surface); --kpi-glow: var(--green); }}
+  .kpi-card.c-tg     {{ background: var(--surface); --kpi-glow: var(--blue); }}
+  .kpi-card.c-vk     {{ background: var(--surface); --kpi-glow: var(--purple); }}
 
-  /* Медиа */
-  .media-grid {{
-    display: grid; grid-template-columns: repeat(3,1fr); gap: 10px;
-    padding: 14px 18px;
+  .kpi-label {{
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--text-3);
   }}
-  .media-tile {{
-    border: 1px solid var(--border); border-radius: 10px;
-    padding: 12px 14px;
-    background: #fafcfa;
+  .kpi-value {{
+    font-size: 36px; font-weight: 800; line-height: 1;
+    font-variant-numeric: tabular-nums;
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }}
+  .kpi-value.v-total {{ background: linear-gradient(135deg, var(--teal-3), var(--teal-2)); }}
+  .kpi-value.v-today {{ background: linear-gradient(135deg, var(--green-2), var(--green)); }}
+  .kpi-value.v-tg    {{ background: linear-gradient(135deg, var(--blue-2), var(--blue)); }}
+  .kpi-value.v-vk    {{ background: linear-gradient(135deg, var(--purple-2), var(--purple)); }}
+  .kpi-hint {{ font-size: 11px; color: var(--text-3); }}
+
+  /* ── Карточка ───────────────────────────────────────────────── */
+  .card {{
+    background: var(--surface);
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    overflow: hidden;
+    margin-bottom: 0;
+  }}
+  .card-head {{
+    padding: 13px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+    display: flex; align-items: center; gap: 10px;
+  }}
+  .card-head-icon {{
+    width: 28px; height: 28px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; flex-shrink: 0;
+  }}
+  .ci-teal   {{ background: rgba(13,148,136,0.18); }}
+  .ci-blue   {{ background: rgba(59,130,246,0.18); }}
+  .ci-gold   {{ background: rgba(217,119,6,0.18); }}
+  .ci-purple {{ background: rgba(139,92,246,0.18); }}
+  .ci-red    {{ background: rgba(239,68,68,0.18); }}
+  .ci-green  {{ background: rgba(16,185,129,0.18); }}
+  .card-head h2 {{ font-size: 13px; font-weight: 700; color: var(--text); }}
+  .card-bubble {{
+    margin-left: auto;
+    background: var(--surface-3);
+    border: 1px solid var(--border-2);
+    color: var(--text-2);
+    font-size: 11px; font-weight: 700;
+    min-width: 24px; height: 22px;
+    border-radius: 11px;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0 8px;
+  }}
+
+  /* ── Статус системы ─────────────────────────────────────────── */
+  .sys-grid {{
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 0;
+  }}
+  @media(min-width:640px) {{ .sys-grid {{ grid-template-columns: repeat(4, 1fr); }} }}
+  .sys-item {{
+    padding: 14px 18px;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
     display: flex; flex-direction: column; gap: 5px;
   }}
-  .media-icon {{ font-size: 22px; }}
+  .sys-item:nth-child(2n) {{ border-right: none; }}
+  @media(min-width:640px) {{
+    .sys-item:nth-child(2n) {{ border-right: 1px solid var(--border); }}
+    .sys-item:last-child {{ border-right: none; }}
+  }}
+  .sys-item:nth-last-child(-n+2) {{ border-bottom: none; }}
+  @media(min-width:640px) {{
+    .sys-item:nth-last-child(-n+4) {{ border-bottom: none; }}
+  }}
+  .sys-name {{ font-size: 10px; font-weight: 700; text-transform: uppercase;
+               letter-spacing: 0.07em; color: var(--text-3); }}
+  .sys-val  {{ font-size: 13px; font-weight: 600; color: var(--text-2); word-break: break-all; }}
+
+  /* ── Строки данных ──────────────────────────────────────────── */
+  .row-item {{
+    padding: 11px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: flex-start; gap: 12px;
+    transition: background 0.1s;
+  }}
+  .row-item:last-child {{ border-bottom: none; }}
+  .row-item:hover {{ background: var(--surface-2); }}
+  .row-text {{ font-size: 13px; color: var(--text); line-height: 1.5; }}
+  .row-meta {{ font-size: 11.5px; color: var(--text-3); margin-top: 3px; display: flex; gap: 6px; align-items: center; }}
+  .row-time {{ font-size: 11px; color: var(--text-3); white-space: nowrap; flex-shrink: 0; font-variant-numeric: tabular-nums; }}
+
+  /* ── Бейджи ─────────────────────────────────────────────────── */
+  .badge {{
+    display: inline-flex; align-items: center;
+    font-size: 11px; font-weight: 600;
+    padding: 2px 8px; border-radius: 20px; white-space: nowrap;
+  }}
+  .badge-tg     {{ background: rgba(59,130,246,0.15); color: var(--blue-2); border: 1px solid rgba(59,130,246,0.2); }}
+  .badge-vk     {{ background: rgba(139,92,246,0.15); color: var(--purple-2); border: 1px solid rgba(139,92,246,0.2); }}
+  .badge-other  {{ background: var(--surface-3); color: var(--text-3); }}
+  .badge-pub    {{ background: rgba(16,185,129,0.15); color: var(--green-2); border: 1px solid rgba(16,185,129,0.2); }}
+  .badge-sched  {{ background: rgba(217,119,6,0.15); color: var(--gold-2); border: 1px solid rgba(217,119,6,0.2); }}
+  .badge-draft  {{ background: var(--surface-3); color: var(--text-2); }}
+  .badge-ok     {{ background: rgba(16,185,129,0.15); color: var(--green-2); border: 1px solid rgba(16,185,129,0.2); }}
+  .badge-warn   {{ background: rgba(217,119,6,0.15); color: var(--gold-2); border: 1px solid rgba(217,119,6,0.2); }}
+  .badge-cp-ok  {{ background: rgba(16,185,129,0.15); color: var(--green-2); border: 1px solid rgba(16,185,129,0.2); }}
+  .badge-cp-draft {{ background: rgba(217,119,6,0.15); color: var(--gold-2); border: 1px solid rgba(217,119,6,0.2); }}
+
+  /* ── Контент-план ───────────────────────────────────────────── */
+  .cp-item {{
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    transition: background 0.1s;
+  }}
+  .cp-item:last-child {{ border-bottom: none; }}
+  .cp-item:hover {{ background: var(--surface-2); }}
+  .cp-day {{
+    min-width: 32px; font-weight: 800; font-size: 15px;
+    color: var(--teal-2); font-variant-numeric: tabular-nums; flex-shrink: 0;
+  }}
+  .cp-topic {{ color: var(--text); flex: 1; line-height: 1.4; }}
+  .cp-fmt {{
+    font-size: 10px; font-weight: 600; color: var(--text-3);
+    background: var(--surface-3); padding: 2px 7px; border-radius: 8px;
+    white-space: nowrap; flex-shrink: 0;
+  }}
+
+  /* ── Медиафайлы ─────────────────────────────────────────────── */
+  .media-grid {{
+    display: grid; grid-template-columns: repeat(3,1fr); gap: 1px;
+    background: var(--border);
+  }}
+  .media-tile {{
+    background: var(--surface);
+    padding: 16px 18px;
+    display: flex; flex-direction: column; gap: 5px;
+  }}
+  .media-icon {{ font-size: 20px; }}
   .media-name {{ font-size: 12px; font-weight: 700; color: var(--text); }}
-  .media-count {{ font-size: 11px; color: var(--text-muted); }}
+  .media-count {{ font-size: 11px; color: var(--text-3); }}
+  .media-names {{
+    padding: 8px 18px 12px;
+    font-size: 11.5px; color: var(--text-3); line-height: 1.6;
+    border-top: 1px solid var(--border);
+  }}
 
-  /* Гриды */
-  .grid-4 {{ display: grid; grid-template-columns: repeat(2,1fr); gap: 12px; margin-bottom: 16px; }}
-  @media(min-width: 640px) {{ .grid-4 {{ grid-template-columns: repeat(4,1fr); }} }}
-  .grid-2 {{ display: grid; grid-template-columns: 1fr; gap: 16px; }}
-  @media(min-width: 820px) {{ .grid-2 {{ grid-template-columns: 1fr 1fr; }} }}
+  /* ── Гриды ──────────────────────────────────────────────────── */
+  .grid-4 {{
+    display: grid; grid-template-columns: repeat(2,1fr); gap: 12px;
+  }}
+  @media(min-width:640px) {{ .grid-4 {{ grid-template-columns: repeat(4,1fr); }} }}
+  .grid-2 {{
+    display: grid; grid-template-columns: 1fr; gap: 16px;
+  }}
+  @media(min-width:860px) {{ .grid-2 {{ grid-template-columns: 1fr 1fr; }} }}
 
-  .empty-state {{ padding: 28px 18px; text-align: center; color: var(--text-muted); font-size: 13px; }}
-  a {{ color: var(--green); }}
+  .empty-state {{
+    padding: 32px 18px; text-align: center; color: var(--text-3);
+    font-size: 13px;
+  }}
+  a {{ color: var(--teal-2); text-decoration: none; }}
+  a:hover {{ color: var(--teal-3); }}
 
   /* ── YouTube-раздел ─────────────────────────────────────────── */
   .yt-card {{
-    background: #0f1117;
-    border-radius: 16px;
-    border: 1px solid #1e2535;
+    background: #0a0d14;
+    border-radius: 14px;
+    border: 1px solid #1a2235;
     overflow: hidden;
-    margin-bottom: 16px;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.25);
+    box-shadow: 0 4px 32px rgba(0,0,0,0.4);
   }}
   .yt-header {{
-    background: linear-gradient(135deg, #1a0a0a 0%, #2d0f0f 50%, #1a0a0a 100%);
-    border-bottom: 1px solid #3d1515;
+    background: linear-gradient(135deg, #120607 0%, #1e0a0a 50%, #120607 100%);
+    border-bottom: 1px solid #2d1515;
     padding: 14px 20px;
     display: flex; align-items: center; gap: 12px;
   }}
   .yt-logo {{
-    width: 32px; height: 22px;
-    background: #FF0000;
-    border-radius: 6px;
+    width: 34px; height: 24px; background: var(--red-2);
+    border-radius: 6px; flex-shrink: 0;
     display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
   }}
   .yt-logo::after {{
-    content: '';
-    width: 0; height: 0;
-    border-style: solid;
-    border-width: 5px 0 5px 10px;
+    content: ''; width: 0; height: 0; border-style: solid;
+    border-width: 5.5px 0 5.5px 11px;
     border-color: transparent transparent transparent #fff;
     margin-left: 2px;
   }}
-  .yt-header h2 {{ font-size: 15px; font-weight: 700; color: #f1f5f9; font-family: system-ui; }}
-  .yt-header-right {{ margin-left: auto; display: flex; align-items: center; gap: 10px; }}
-  .yt-auth-ok   {{ background: #14532d; color: #4ade80; font-size: 11px; font-weight: 700;
-                   padding: 3px 10px; border-radius: 20px; border: 1px solid #166534; }}
-  .yt-auth-warn {{ background: #431407; color: #fb923c; font-size: 11px; font-weight: 700;
-                   padding: 3px 10px; border-radius: 20px; border: 1px solid #7c2d12; }}
+  .yt-header h2 {{ font-size: 14px; font-weight: 700; color: #f1f5f9; }}
+  .yt-header-right {{ margin-left: auto; display: flex; align-items: center; gap: 8px; }}
+  .yt-auth-ok   {{ background: rgba(16,185,129,0.12); color: #34d399; font-size: 11px; font-weight: 700;
+                   padding: 3px 10px; border-radius: 20px; border: 1px solid rgba(16,185,129,0.2); }}
+  .yt-auth-warn {{ background: rgba(239,68,68,0.12); color: #f87171; font-size: 11px; font-weight: 700;
+                   padding: 3px 10px; border-radius: 20px; border: 1px solid rgba(239,68,68,0.2); }}
   .yt-studio-link {{
-    font-size: 11px; font-weight: 600; color: #94a3b8;
+    font-size: 11px; font-weight: 600; color: var(--text-2);
     text-decoration: none; padding: 3px 10px; border-radius: 20px;
-    border: 1px solid #334155; transition: all 0.15s;
+    border: 1px solid var(--border-2);
   }}
-  .yt-studio-link:hover {{ color: #f1f5f9; border-color: #475569; background: #1e293b; }}
+  .yt-studio-link:hover {{ color: var(--text); border-color: var(--text-3); background: var(--surface-3); }}
 
-  /* KPI-карточки YouTube */
   .yt-kpi-grid {{
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1px;
-    background: #1e2535;
+    display: grid; grid-template-columns: repeat(2,1fr);
+    gap: 1px; background: #1a2235;
   }}
-  @media(min-width: 640px) {{ .yt-kpi-grid {{ grid-template-columns: repeat(4, 1fr); }} }}
+  @media(min-width:640px) {{ .yt-kpi-grid {{ grid-template-columns: repeat(4,1fr); }} }}
   .yt-kpi {{
-    background: #0f1117;
-    padding: 18px 20px;
+    background: #0a0d14; padding: 18px 20px;
     display: flex; flex-direction: column; gap: 6px;
   }}
-  .yt-kpi-label {{
-    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
-    text-transform: uppercase; color: #64748b;
-  }}
+  .yt-kpi-label {{ font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+                   text-transform: uppercase; color: #475569; }}
   .yt-kpi-value {{
     font-size: 28px; font-weight: 800; line-height: 1;
     font-variant-numeric: tabular-nums;
     background: linear-gradient(135deg, #f1f5f9, #94a3b8);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    background-clip: text;
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
   }}
-  .yt-kpi-value.red  {{ background: linear-gradient(135deg, #FF0000, #ff6b6b);
-                        -webkit-background-clip: text; background-clip: text; }}
-  .yt-kpi-value.blue {{ background: linear-gradient(135deg, #60a5fa, #93c5fd);
-                        -webkit-background-clip: text; background-clip: text; }}
-  .yt-kpi-value.green {{ background: linear-gradient(135deg, #4ade80, #86efac);
-                         -webkit-background-clip: text; background-clip: text; }}
-  .yt-kpi-hint {{ font-size: 11px; color: #475569; }}
+  .yt-kpi-value.kv-red   {{ background: linear-gradient(135deg, #FF0000, #ff6b6b);
+                             -webkit-background-clip: text; background-clip: text; }}
+  .yt-kpi-value.kv-blue  {{ background: linear-gradient(135deg, var(--blue-2), #93c5fd);
+                             -webkit-background-clip: text; background-clip: text; }}
+  .yt-kpi-value.kv-green {{ background: linear-gradient(135deg, var(--green-2), #86efac);
+                             -webkit-background-clip: text; background-clip: text; }}
+  .yt-kpi-hint {{ font-size: 11px; color: #334155; }}
 
-  /* Таблица видео */
   .yt-table-wrap {{ overflow-x: auto; }}
-  .yt-table {{
-    width: 100%; border-collapse: collapse;
-    font-size: 12.5px; color: #cbd5e1;
-  }}
+  .yt-table {{ width: 100%; border-collapse: collapse; font-size: 12.5px; color: #94a3b8; }}
   .yt-table th {{
-    background: #0a0d14;
-    color: #64748b;
-    font-size: 10px; font-weight: 700;
-    letter-spacing: 0.07em; text-transform: uppercase;
-    padding: 10px 16px; text-align: left;
-    border-bottom: 1px solid #1e2535;
+    background: #060810; color: #334155;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+    padding: 10px 16px; text-align: left; border-bottom: 1px solid #1a2235;
     white-space: nowrap;
   }}
-  .yt-table td {{
-    padding: 11px 16px;
-    border-bottom: 1px solid #1a2030;
-    vertical-align: middle;
-  }}
+  .yt-table td {{ padding: 11px 16px; border-bottom: 1px solid #111827; vertical-align: middle; }}
   .yt-table tr:last-child td {{ border-bottom: none; }}
-  .yt-table tr:hover td {{ background: #111827; }}
-  .yt-video-title {{
-    color: #e2e8f0; font-weight: 600;
-    max-width: 280px; overflow: hidden;
-    text-overflow: ellipsis; white-space: nowrap;
-  }}
-  .yt-video-title a {{ color: #e2e8f0; text-decoration: none; }}
-  .yt-video-title a:hover {{ color: #FF0000; }}
-  .yt-badge-pub   {{ background: #14532d; color: #4ade80; font-size: 10px; font-weight: 700;
-                     padding: 2px 8px; border-radius: 12px; white-space: nowrap; }}
-  .yt-badge-draft {{ background: #1e293b; color: #94a3b8; font-size: 10px; font-weight: 700;
-                     padding: 2px 8px; border-radius: 12px; white-space: nowrap; }}
-  .yt-fmt-shorts  {{ background: #2d1a4a; color: #c084fc; font-size: 10px; font-weight: 700;
-                     padding: 2px 8px; border-radius: 12px; }}
-  .yt-fmt-lesson  {{ background: #172554; color: #93c5fd; font-size: 10px; font-weight: 700;
-                     padding: 2px 8px; border-radius: 12px; }}
-  .yt-stat {{ color: #64748b; font-variant-numeric: tabular-nums; }}
-  .yt-stat.has-value {{ color: #94a3b8; }}
-  .yt-empty {{
-    padding: 40px 20px; text-align: center; color: #334155;
-    font-size: 13px;
-  }}
-  .yt-empty svg {{ opacity: 0.3; margin-bottom: 12px; }}
+  .yt-table tr:hover td {{ background: #0e1420; }}
+  .yt-video-title {{ color: #e2e8f0; font-weight: 600; max-width: 280px;
+                     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+  .yt-video-title a {{ color: #e2e8f0; }}
+  .yt-video-title a:hover {{ color: var(--red-2); }}
+  .yt-badge-pub   {{ background: rgba(16,185,129,0.12); color: #34d399;
+                     font-size: 10px; font-weight: 700; padding: 2px 8px;
+                     border-radius: 12px; border: 1px solid rgba(16,185,129,0.2); }}
+  .yt-badge-draft {{ background: #1e293b; color: #64748b;
+                     font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 12px; }}
+  .yt-fmt-shorts  {{ background: rgba(139,92,246,0.15); color: var(--purple-2);
+                     font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 12px; }}
+  .yt-fmt-lesson  {{ background: rgba(59,130,246,0.12); color: var(--blue-2);
+                     font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 12px; }}
+  .yt-stat {{ color: #334155; font-variant-numeric: tabular-nums; }}
+  .yt-stat.hv {{ color: #64748b; }}
+  .yt-empty {{ padding: 40px 20px; text-align: center; color: #1e293b; font-size: 13px; }}
+  .yt-empty svg {{ opacity: 0.2; margin-bottom: 12px; }}
 </style>
 </head>
 <body>
 
 <!-- Шапка -->
 <div class="header-bar">
-  <img src="/static/logo.png" alt="" style="height:52px;width:auto;border-radius:8px;"
-       onerror="this.style.display='none'">
-  <div>
-    <h1>🌿 Целительный цигун и ушу</h1>
-    <p class="header-sub">Панель управления · {now_msk} МСК · автообновление 60 с</p>
+  <div class="header-brand">
+    <img src="/static/logo.png" alt="" class="header-logo"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+    <div class="header-logo-placeholder" style="display:none">☯</div>
+    <div>
+      <div class="header-title">Оздоровительный цигун и ушу</div>
+      <div class="header-sub">Панель управления · {now_msk} МСК · автообновление 60 с</div>
+    </div>
+  </div>
+  <div class="header-status">
+    <span class="{dot_class}"></span>
+    <span class="header-status-text">{bot_mode}</span>
   </div>
 </div>
 
-<div style="max-width:1100px;margin:0 auto;padding:20px 16px;">
+<div class="wrap">
 
   <!-- Статус системы -->
-  <p class="section-label">⚙️ Статус системы</p>
+  <div class="sec-label">Статус системы</div>
   <div class="card" style="margin-bottom:16px;">
-    <div class="status-grid">
-      <div class="status-item">
-        <span class="status-name">Бот</span>
-        <span class="status-val">{bot_status}</span>
+    <div class="sys-grid">
+      <div class="sys-item">
+        <span class="sys-name">Бот</span>
+        <span class="sys-val">{bot_status}</span>
       </div>
-      <div class="status-item">
-        <span class="status-name">Режим</span>
-        <span class="status-val">{bot_mode}</span>
+      <div class="sys-item">
+        <span class="sys-name">Режим</span>
+        <span class="sys-val">{bot_mode}</span>
       </div>
-      <div class="status-item">
-        <span class="status-name">Домен</span>
-        <span class="status-val" style="font-size:11px;word-break:break-all">{railway_domain}</span>
+      <div class="sys-item">
+        <span class="sys-name">Домен</span>
+        <span class="sys-val" style="font-size:11px">{railway_domain}</span>
       </div>
-      <div class="status-item">
-        <span class="status-name">Версия</span>
-        <span class="status-val">v4 · 2026-06-29</span>
+      <div class="sys-item">
+        <span class="sys-name">Версия</span>
+        <span class="sys-val" style="color:var(--teal-2)">v4 · 2026-06-30</span>
       </div>
     </div>
   </div>
 
-  <!-- Статистика заявок -->
-  <p class="section-label">📊 Статистика заявок</p>
-  <div class="grid-4">
-    <div class="stat-card">
-      <span class="stat-label">Всего</span>
-      <span class="stat-value">{stat_total}</span>
-      <span class="stat-hint">за всё время</span>
+  <!-- KPI заявок -->
+  <div class="sec-label">Статистика заявок</div>
+  <div class="kpi-strip" style="margin-bottom:16px;">
+    <div class="kpi-card c-total">
+      <span class="kpi-label">Всего</span>
+      <span class="kpi-value v-total">{stat_total}</span>
+      <span class="kpi-hint">за всё время</span>
     </div>
-    <div class="stat-card">
-      <span class="stat-label">Сегодня</span>
-      <span class="stat-value today">{stat_today}</span>
-      <span class="stat-hint">новых заявок</span>
+    <div class="kpi-card c-today">
+      <span class="kpi-label">Сегодня</span>
+      <span class="kpi-value v-today">{stat_today}</span>
+      <span class="kpi-hint">новых заявок</span>
     </div>
-    <div class="stat-card">
-      <span class="stat-label">Telegram</span>
-      <span class="stat-value tg">{stat_tg}</span>
-      <span class="stat-hint">из Telegram</span>
+    <div class="kpi-card c-tg">
+      <span class="kpi-label">Telegram</span>
+      <span class="kpi-value v-tg">{stat_tg}</span>
+      <span class="kpi-hint">из Telegram</span>
     </div>
-    <div class="stat-card">
-      <span class="stat-label">ВКонтакте</span>
-      <span class="stat-value vk">{stat_vk}</span>
-      <span class="stat-hint">из ВКонтакте</span>
+    <div class="kpi-card c-vk">
+      <span class="kpi-label">ВКонтакте</span>
+      <span class="kpi-value v-vk">{stat_vk}</span>
+      <span class="kpi-hint">из ВКонтакте</span>
     </div>
   </div>
 
-  <!-- Основная сетка -->
-  <div class="grid-2">
-
-    <!-- Заявки -->
+  <!-- Заявки + Посты -->
+  <div class="grid-2" style="margin-bottom:16px;">
     <div>
-      <p class="section-label">👤 Последние заявки</p>
+      <div class="sec-label">Последние заявки</div>
       <div class="card">
-        <div class="card-header">
-          <span>👤</span><h2>Заявки</h2>
-          <div class="count-bubble">{stat_total}</div>
+        <div class="card-head">
+          <div class="card-head-icon ci-teal">👤</div>
+          <h2>Заявки</h2>
+          <div class="card-bubble">{stat_total}</div>
         </div>
         {bookings_html}
       </div>
     </div>
-
-    <!-- Посты -->
     <div>
-      <p class="section-label">⏰ Запланированные посты</p>
+      <div class="sec-label">Запланированные посты</div>
       <div class="card">
-        <div class="card-header">
-          <span>⏰</span><h2>Запланированные</h2>
-          <div class="count-bubble">{scheduled_count}</div>
+        <div class="card-head">
+          <div class="card-head-icon ci-gold">⏰</div>
+          <h2>Запланированные</h2>
+          <div class="card-bubble">{scheduled_count}</div>
         </div>
         {scheduled_html}
       </div>
     </div>
-
   </div>
 
   <!-- Контент-план -->
-  <p class="section-label">📅 Контент-план · {cp_month}</p>
+  <div class="sec-label">Контент-план · {cp_month}</div>
   <div class="card" style="margin-bottom:16px;">
-    <div class="card-header">
-      <span>📅</span><h2>Контент-план</h2>
+    <div class="card-head">
+      <div class="card-head-icon ci-blue">📅</div>
+      <h2>Контент-план</h2>
       <div style="margin-left:auto">{cp_status_badge}</div>
     </div>
     {cp_html}
   </div>
 
   <!-- Медиафайлы -->
-  <p class="section-label">🎬 Медиафайлы</p>
+  <div class="sec-label">Медиафайлы</div>
   <div class="card" style="margin-bottom:16px;">
-    <div class="card-header"><span>🎬</span><h2>Медиафайлы</h2></div>
+    <div class="card-head">
+      <div class="card-head-icon ci-purple">🎬</div>
+      <h2>Медиафайлы</h2>
+    </div>
     <div class="media-grid">
       <div class="media-tile">
         <span class="media-icon">🎥</span>
@@ -480,31 +581,25 @@ PAGE = """\
   </div>
 
   <!-- YouTube -->
-  <p class="section-label" style="color:#94a3b8">▶ YouTube · Дыхание движения</p>
-  <div class="yt-card">
-
-    <!-- Заголовок -->
+  <div class="sec-label" style="color:var(--text-3)">YouTube · Дыхание движения</div>
+  <div class="yt-card" style="margin-bottom:16px;">
     <div class="yt-header">
       <div class="yt-logo"></div>
       <h2>Дыхание движения</h2>
       <div class="yt-header-right">
         {yt_auth_badge}
-        <a class="yt-studio-link" href="https://studio.youtube.com" target="_blank">
-          YouTube Studio ↗
-        </a>
+        <a class="yt-studio-link" href="https://studio.youtube.com" target="_blank">YouTube Studio ↗</a>
       </div>
     </div>
-
-    <!-- KPI карточки -->
     <div class="yt-kpi-grid">
       <div class="yt-kpi">
         <span class="yt-kpi-label">Подписчики</span>
-        <span class="yt-kpi-value red">{yt_subs}</span>
+        <span class="yt-kpi-value kv-red">{yt_subs}</span>
         <span class="yt-kpi-hint">на канале</span>
       </div>
       <div class="yt-kpi">
         <span class="yt-kpi-label">Просмотры</span>
-        <span class="yt-kpi-value blue">{yt_views}</span>
+        <span class="yt-kpi-value kv-blue">{yt_views}</span>
         <span class="yt-kpi-hint">всего</span>
       </div>
       <div class="yt-kpi">
@@ -514,34 +609,37 @@ PAGE = """\
       </div>
       <div class="yt-kpi">
         <span class="yt-kpi-label">В системе</span>
-        <span class="yt-kpi-value green">{yt_pub}</span>
+        <span class="yt-kpi-value kv-green">{yt_pub}</span>
         <span class="yt-kpi-hint">из {yt_total} подготовлено</span>
       </div>
     </div>
-
-    <!-- Таблица видео -->
     {yt_table_html}
-
   </div>
 
-  <!-- История постов -->
-  <p class="section-label">📋 История постов</p>
-  <div class="card" style="margin-bottom:16px;">
-    <div class="card-header">
-      <span>📋</span><h2>История постов</h2>
-      <div class="count-bubble">{history_count}</div>
+  <!-- История постов + Площадки -->
+  <div class="grid-2">
+    <div>
+      <div class="sec-label">История постов</div>
+      <div class="card">
+        <div class="card-head">
+          <div class="card-head-icon ci-teal">📋</div>
+          <h2>История постов</h2>
+          <div class="card-bubble">{history_count}</div>
+        </div>
+        {history_html}
+      </div>
     </div>
-    {history_html}
-  </div>
-
-  <!-- Подписные ссылки -->
-  <p class="section-label">🔗 Подписные площадки</p>
-  <div class="card">
-    <div class="card-header">
-      <span>🔗</span><h2>Площадки</h2>
-      <div class="count-bubble">{links_count}</div>
+    <div>
+      <div class="sec-label">Подписные площадки</div>
+      <div class="card">
+        <div class="card-head">
+          <div class="card-head-icon ci-green">🔗</div>
+          <h2>Площадки</h2>
+          <div class="card-bubble">{links_count}</div>
+        </div>
+        {links_html}
+      </div>
     </div>
-    {links_html}
   </div>
 
 </div>
@@ -571,13 +669,16 @@ def dashboard(username: str = Depends(require_auth)):
 
     # ── Статус системы ──────────────────────────────────────────────────────
     import app_state
+    _bs = _BADGE_STYLE
     railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "—")
     if app_state.admin_application:
-        bot_status = '<span class="badge-ok">✅ работает</span>'
+        bot_status = f'<span class="badge-ok" {_bs}>✅ работает</span>'
         bot_mode   = "webhook" if railway_domain != "—" else "polling"
+        dot_class  = "dot-online"
     else:
-        bot_status = '<span class="badge-warn">⚠ не запущен</span>'
+        bot_status = f'<span class="badge-warn" {_bs}>⚠ не запущен</span>'
         bot_mode   = "—"
+        dot_class  = "dot-offline"
 
     # ── Заявки ──────────────────────────────────────────────────────────────
     if bookings:
@@ -621,9 +722,9 @@ def dashboard(username: str = Depends(require_auth)):
             cp_items = json.loads(cp_items_raw) if isinstance(cp_items_raw, str) else cp_items_raw
         except Exception:
             cp_items = []
-        cp_status_badge = ('<span class="badge-cp-ok">✅ утверждён</span>'
+        cp_status_badge = (f'<span class="badge-cp-ok" {_bs}>✅ утверждён</span>'
                            if cp_approved else
-                           '<span class="badge-cp-draft">⏳ черновик</span>')
+                           f'<span class="badge-cp-draft" {_bs}>⏳ черновик</span>')
         if cp_items:
             rows = ""
             for item in cp_items[:20]:
@@ -640,7 +741,7 @@ def dashboard(username: str = Depends(require_auth)):
         else:
             cp_html = '<div class="empty-state">Элементы плана не найдены</div>'
     else:
-        cp_status_badge = '<span class="badge-warn">нет плана</span>'
+        cp_status_badge = f'<span class="badge-warn" {_bs}>нет плана</span>'
         cp_html = '<div class="empty-state">Контент-план на этот месяц не создан</div>'
 
     # ── Медиафайлы ──────────────────────────────────────────────────────────
@@ -652,12 +753,12 @@ def dashboard(username: str = Depends(require_auth)):
         names = ", ".join(r[1] for r in videos[:6])
         if len(videos) > 6:
             names += f" +{len(videos)-6}"
-        media_rows += f'<div style="padding:6px 18px 10px;font-size:12px;color:var(--text-muted)">🎥 {e(names)}</div>'
+        media_rows += f'<div class="media-names">🎥 {e(names)}</div>'
     if audios:
         names = ", ".join(r[1] for r in audios[:6])
         if len(audios) > 6:
             names += f" +{len(audios)-6}"
-        media_rows += f'<div style="padding:0 18px 10px;font-size:12px;color:var(--text-muted)">🎵 {e(names)}</div>'
+        media_rows += f'<div class="media-names" style="border-top:none;padding-top:0">🎵 {e(names)}</div>'
     media_names_html = media_rows
 
     # ── YouTube ─────────────────────────────────────────────────────────────
@@ -735,11 +836,11 @@ def dashboard(username: str = Depends(require_auth)):
         for row in history:
             pid, platform, text, published, sched_at, created_at = row
             if published:
-                badge = '<span class="badge-pub">✅ опубликован</span>'
+                badge = f'<span class="badge-pub" {_bs}>✅ опубликован</span>'
             elif sched_at:
-                badge = '<span class="badge-sched">⏳ запланирован</span>'
+                badge = f'<span class="badge-sched" {_bs}>⏳ запланирован</span>'
             else:
-                badge = '<span class="badge-wait">черновик</span>'
+                badge = f'<span class="badge-draft" {_bs}>черновик</span>'
             rows += f"""
 <div class="row-item">
   <div style="flex:1">
@@ -770,6 +871,7 @@ def dashboard(username: str = Depends(require_auth)):
 
     html = PAGE.format(
         now_msk        = now_msk,
+        dot_class      = dot_class,
         bot_status     = bot_status,
         bot_mode       = bot_mode,
         railway_domain = railway_domain,
