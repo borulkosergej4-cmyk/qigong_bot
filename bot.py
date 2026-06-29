@@ -123,6 +123,8 @@ def _main_keyboard():
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    if user.id in ADMIN_IDS:
+        return
     _agent.clear_history(user.id)
     _signup.pop(user.id, None)
     greeting = (
@@ -196,6 +198,9 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     uid = update.effective_user.id
+    if uid in ADMIN_IDS:
+        return  # Администраторы пишут свободно — бот не реагирует
+
     text = (msg.text or "").strip()
     if not text:
         return
