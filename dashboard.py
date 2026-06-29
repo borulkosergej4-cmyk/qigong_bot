@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from data.database import (
     get_bookings, get_bookings_stats, get_posts_history, get_scheduled_posts,
     get_subscription_links, get_content_plan, get_bg_videos, get_bg_audios, get_logo,
-    init_db,
+    get_youtube_videos, init_db,
 )
 
 DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "qigong")
@@ -232,6 +232,126 @@ PAGE = """\
 
   .empty-state {{ padding: 28px 18px; text-align: center; color: var(--text-muted); font-size: 13px; }}
   a {{ color: var(--green); }}
+
+  /* ── YouTube-раздел ─────────────────────────────────────────── */
+  .yt-card {{
+    background: #0f1117;
+    border-radius: 16px;
+    border: 1px solid #1e2535;
+    overflow: hidden;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.25);
+  }}
+  .yt-header {{
+    background: linear-gradient(135deg, #1a0a0a 0%, #2d0f0f 50%, #1a0a0a 100%);
+    border-bottom: 1px solid #3d1515;
+    padding: 14px 20px;
+    display: flex; align-items: center; gap: 12px;
+  }}
+  .yt-logo {{
+    width: 32px; height: 22px;
+    background: #FF0000;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }}
+  .yt-logo::after {{
+    content: '';
+    width: 0; height: 0;
+    border-style: solid;
+    border-width: 5px 0 5px 10px;
+    border-color: transparent transparent transparent #fff;
+    margin-left: 2px;
+  }}
+  .yt-header h2 {{ font-size: 15px; font-weight: 700; color: #f1f5f9; font-family: system-ui; }}
+  .yt-header-right {{ margin-left: auto; display: flex; align-items: center; gap: 10px; }}
+  .yt-auth-ok   {{ background: #14532d; color: #4ade80; font-size: 11px; font-weight: 700;
+                   padding: 3px 10px; border-radius: 20px; border: 1px solid #166534; }}
+  .yt-auth-warn {{ background: #431407; color: #fb923c; font-size: 11px; font-weight: 700;
+                   padding: 3px 10px; border-radius: 20px; border: 1px solid #7c2d12; }}
+  .yt-studio-link {{
+    font-size: 11px; font-weight: 600; color: #94a3b8;
+    text-decoration: none; padding: 3px 10px; border-radius: 20px;
+    border: 1px solid #334155; transition: all 0.15s;
+  }}
+  .yt-studio-link:hover {{ color: #f1f5f9; border-color: #475569; background: #1e293b; }}
+
+  /* KPI-карточки YouTube */
+  .yt-kpi-grid {{
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1px;
+    background: #1e2535;
+  }}
+  @media(min-width: 640px) {{ .yt-kpi-grid {{ grid-template-columns: repeat(4, 1fr); }} }}
+  .yt-kpi {{
+    background: #0f1117;
+    padding: 18px 20px;
+    display: flex; flex-direction: column; gap: 6px;
+  }}
+  .yt-kpi-label {{
+    font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; color: #64748b;
+  }}
+  .yt-kpi-value {{
+    font-size: 28px; font-weight: 800; line-height: 1;
+    font-variant-numeric: tabular-nums;
+    background: linear-gradient(135deg, #f1f5f9, #94a3b8);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }}
+  .yt-kpi-value.red  {{ background: linear-gradient(135deg, #FF0000, #ff6b6b);
+                        -webkit-background-clip: text; background-clip: text; }}
+  .yt-kpi-value.blue {{ background: linear-gradient(135deg, #60a5fa, #93c5fd);
+                        -webkit-background-clip: text; background-clip: text; }}
+  .yt-kpi-value.green {{ background: linear-gradient(135deg, #4ade80, #86efac);
+                         -webkit-background-clip: text; background-clip: text; }}
+  .yt-kpi-hint {{ font-size: 11px; color: #475569; }}
+
+  /* Таблица видео */
+  .yt-table-wrap {{ overflow-x: auto; }}
+  .yt-table {{
+    width: 100%; border-collapse: collapse;
+    font-size: 12.5px; color: #cbd5e1;
+  }}
+  .yt-table th {{
+    background: #0a0d14;
+    color: #64748b;
+    font-size: 10px; font-weight: 700;
+    letter-spacing: 0.07em; text-transform: uppercase;
+    padding: 10px 16px; text-align: left;
+    border-bottom: 1px solid #1e2535;
+    white-space: nowrap;
+  }}
+  .yt-table td {{
+    padding: 11px 16px;
+    border-bottom: 1px solid #1a2030;
+    vertical-align: middle;
+  }}
+  .yt-table tr:last-child td {{ border-bottom: none; }}
+  .yt-table tr:hover td {{ background: #111827; }}
+  .yt-video-title {{
+    color: #e2e8f0; font-weight: 600;
+    max-width: 280px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }}
+  .yt-video-title a {{ color: #e2e8f0; text-decoration: none; }}
+  .yt-video-title a:hover {{ color: #FF0000; }}
+  .yt-badge-pub   {{ background: #14532d; color: #4ade80; font-size: 10px; font-weight: 700;
+                     padding: 2px 8px; border-radius: 12px; white-space: nowrap; }}
+  .yt-badge-draft {{ background: #1e293b; color: #94a3b8; font-size: 10px; font-weight: 700;
+                     padding: 2px 8px; border-radius: 12px; white-space: nowrap; }}
+  .yt-fmt-shorts  {{ background: #2d1a4a; color: #c084fc; font-size: 10px; font-weight: 700;
+                     padding: 2px 8px; border-radius: 12px; }}
+  .yt-fmt-lesson  {{ background: #172554; color: #93c5fd; font-size: 10px; font-weight: 700;
+                     padding: 2px 8px; border-radius: 12px; }}
+  .yt-stat {{ color: #64748b; font-variant-numeric: tabular-nums; }}
+  .yt-stat.has-value {{ color: #94a3b8; }}
+  .yt-empty {{
+    padding: 40px 20px; text-align: center; color: #334155;
+    font-size: 13px;
+  }}
+  .yt-empty svg {{ opacity: 0.3; margin-bottom: 12px; }}
 </style>
 </head>
 <body>
@@ -359,6 +479,51 @@ PAGE = """\
     {media_names_html}
   </div>
 
+  <!-- YouTube -->
+  <p class="section-label" style="color:#94a3b8">▶ YouTube · Дыхание движения</p>
+  <div class="yt-card">
+
+    <!-- Заголовок -->
+    <div class="yt-header">
+      <div class="yt-logo"></div>
+      <h2>Дыхание движения</h2>
+      <div class="yt-header-right">
+        {yt_auth_badge}
+        <a class="yt-studio-link" href="https://studio.youtube.com" target="_blank">
+          YouTube Studio ↗
+        </a>
+      </div>
+    </div>
+
+    <!-- KPI карточки -->
+    <div class="yt-kpi-grid">
+      <div class="yt-kpi">
+        <span class="yt-kpi-label">Подписчики</span>
+        <span class="yt-kpi-value red">{yt_subs}</span>
+        <span class="yt-kpi-hint">на канале</span>
+      </div>
+      <div class="yt-kpi">
+        <span class="yt-kpi-label">Просмотры</span>
+        <span class="yt-kpi-value blue">{yt_views}</span>
+        <span class="yt-kpi-hint">всего</span>
+      </div>
+      <div class="yt-kpi">
+        <span class="yt-kpi-label">Видео на канале</span>
+        <span class="yt-kpi-value">{yt_vcount}</span>
+        <span class="yt-kpi-hint">опубликовано</span>
+      </div>
+      <div class="yt-kpi">
+        <span class="yt-kpi-label">В системе</span>
+        <span class="yt-kpi-value green">{yt_pub}</span>
+        <span class="yt-kpi-hint">из {yt_total} подготовлено</span>
+      </div>
+    </div>
+
+    <!-- Таблица видео -->
+    {yt_table_html}
+
+  </div>
+
   <!-- История постов -->
   <p class="section-label">📋 История постов</p>
   <div class="card" style="margin-bottom:16px;">
@@ -388,16 +553,17 @@ PAGE = """\
 @app.get("/", response_class=HTMLResponse)
 def dashboard(username: str = Depends(require_auth)):
     try:
-        scheduled = get_scheduled_posts()
-        history   = get_posts_history(30)
-        links     = get_subscription_links()
-        bookings  = get_bookings(25)
-        stats     = get_bookings_stats()
-        videos    = get_bg_videos()
-        audios    = get_bg_audios()
-        logo_data = get_logo()
-        cp_month  = datetime.utcnow().strftime("%Y-%m")
-        cp_row    = get_content_plan(cp_month)
+        scheduled  = get_scheduled_posts()
+        history    = get_posts_history(30)
+        links      = get_subscription_links()
+        bookings   = get_bookings(25)
+        stats      = get_bookings_stats()
+        videos     = get_bg_videos()
+        audios     = get_bg_audios()
+        logo_data  = get_logo()
+        cp_month   = datetime.utcnow().strftime("%Y-%m")
+        cp_row     = get_content_plan(cp_month)
+        yt_videos  = get_youtube_videos(20)
     except Exception as ex:
         return HTMLResponse(f"<h1>Ошибка БД: {e(str(ex))}</h1>", status_code=500)
 
@@ -494,6 +660,75 @@ def dashboard(username: str = Depends(require_auth)):
         media_rows += f'<div style="padding:0 18px 10px;font-size:12px;color:var(--text-muted)">🎵 {e(names)}</div>'
     media_names_html = media_rows
 
+    # ── YouTube ─────────────────────────────────────────────────────────────
+    try:
+        import youtube_api as _yt
+        yt_authorized = _yt.is_authorized()
+        if yt_authorized:
+            try:
+                yt_info = _yt.get_channel_info()
+                yt_subs   = f"{yt_info.get('subscribers', 0):,}".replace(",", " ")
+                yt_views  = f"{yt_info.get('views', 0):,}".replace(",", " ")
+                yt_vcount = str(yt_info.get('videos', 0))
+            except Exception:
+                yt_subs = yt_views = yt_vcount = "—"
+        else:
+            yt_subs = yt_views = yt_vcount = "—"
+    except Exception:
+        yt_authorized = False
+        yt_subs = yt_views = yt_vcount = "—"
+
+    yt_auth_badge = ('<span class="yt-auth-ok">✓ авторизован</span>' if yt_authorized
+                     else '<span class="yt-auth-warn">⚠ не авторизован</span>')
+
+    yt_total = len(yt_videos)
+    yt_pub   = sum(1 for v in yt_videos if v[4] == "published")
+
+    if yt_videos:
+        yt_rows = ""
+        for row in yt_videos:
+            vid_id, yt_id, title, fmt, status, views, likes, pub_at, cr_at = row
+            title_cell = (
+                f'<a href="https://youtu.be/{e(yt_id)}" target="_blank">{e(title or "—")}</a>'
+                if yt_id else e(title or "—")
+            )
+            status_badge = ('<span class="yt-badge-pub">опубликовано</span>' if status == "published"
+                           else '<span class="yt-badge-draft">черновик</span>')
+            fmt_badge = ('<span class="yt-fmt-shorts">Shorts</span>' if fmt == "shorts"
+                        else f'<span class="yt-fmt-lesson">{e(fmt or "видео")}</span>')
+            views_str = f'<span class="yt-stat{"" if not views else " has-value"}">{views or "—"}</span>'
+            likes_str = f'<span class="yt-stat{"" if not likes else " has-value"}">{likes or "—"}</span>'
+            yt_rows += f"""<tr>
+  <td class="yt-video-title">{title_cell}</td>
+  <td>{fmt_badge}</td>
+  <td>{status_badge}</td>
+  <td>{views_str}</td>
+  <td>{likes_str}</td>
+  <td style="color:#475569;font-size:11px;white-space:nowrap">{msk(cr_at)}</td>
+</tr>"""
+        yt_table_html = f"""
+<div class="yt-table-wrap">
+<table class="yt-table">
+  <thead><tr>
+    <th>Название</th><th>Формат</th><th>Статус</th>
+    <th>👁 Просмотры</th><th>❤️ Лайки</th><th>Создано</th>
+  </tr></thead>
+  <tbody>{yt_rows}</tbody>
+</table>
+</div>"""
+    else:
+        yt_table_html = """
+<div class="yt-empty">
+  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="1.5">
+    <rect x="2" y="7" width="20" height="14" rx="3"/><path d="m10 10 5 2.5L10 15V10z"/>
+    <path d="M8 3h8"/>
+  </svg>
+  <div>Видео ещё не создавались</div>
+  <div style="font-size:11px;margin-top:6px;color:#1e293b">
+    Нажми ▶️ YouTube → ✍️ Подготовить Shorts в боте
+  </div>
+</div>"""
+
     # ── История постов ──────────────────────────────────────────────────────
     if history:
         rows = ""
@@ -556,6 +791,13 @@ def dashboard(username: str = Depends(require_auth)):
         history_count  = len(history),
         links_html     = links_html,
         links_count    = len(links),
+        yt_auth_badge  = yt_auth_badge,
+        yt_subs        = yt_subs,
+        yt_views       = yt_views,
+        yt_vcount      = yt_vcount,
+        yt_total       = yt_total,
+        yt_pub         = yt_pub,
+        yt_table_html  = yt_table_html,
     )
     return HTMLResponse(html)
 
