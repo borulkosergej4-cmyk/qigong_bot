@@ -196,6 +196,7 @@ PAGE = """\
   .kpi-value {{
     font-size: 36px; font-weight: 800; line-height: 1;
     font-variant-numeric: tabular-nums;
+    display: inline-block; width: fit-content;
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     background-clip: text;
   }}
@@ -406,6 +407,7 @@ PAGE = """\
   .yt-kpi-value {{
     font-size: 28px; font-weight: 800; line-height: 1;
     font-variant-numeric: tabular-nums;
+    display: inline-block; width: fit-content;
     background: linear-gradient(135deg, #f1f5f9, #94a3b8);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
   }}
@@ -442,7 +444,7 @@ PAGE = """\
   .yt-fmt-lesson  {{ background: rgba(59,130,246,0.12); color: var(--blue-2);
                      font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 12px; }}
   .yt-stat {{ color: #334155; font-variant-numeric: tabular-nums; }}
-  .yt-stat.hv {{ color: #64748b; }}
+  .yt-stat.has-value {{ color: #64748b; }}
   .yt-empty {{ padding: 40px 20px; text-align: center; color: #1e293b; font-size: 13px; }}
   .yt-empty svg {{ opacity: 0.2; margin-bottom: 12px; }}
 </style>
