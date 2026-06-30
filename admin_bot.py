@@ -42,6 +42,7 @@ from data.database import (
     get_scheduled_posts, init_db, mark_post_published, save_post,
     save_content_plan, get_subscription_links, add_subscription_link,
     delete_subscription_link, save_bg_video, get_bg_videos, delete_bg_video,
+    get_bg_videos_meta, get_bg_video_data, get_bg_audios_meta, get_bg_audio_data,
     save_bg_audio, get_bg_audios, delete_bg_audio, save_logo, get_logo,
     save_post_photo, get_post_photos, delete_post_photo,
     save_youtube_video, mark_youtube_published, get_youtube_videos,
@@ -350,20 +351,27 @@ async def _scheduled_post_loop(bot: Bot) -> None:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def _restore_media():
+    # Тянем только id+name (без BYTEA data), и только для реально отсутствующих
+    # на диске файлов скачиваем их содержимое — раньше скачивались ВСЕ видео/аудио
+    # целиком при каждом рестарте Railway, что и сожгло месячную квоту Neon за 4 дня.
     try:
-        for vid_id, name, data in get_bg_videos():
+        for vid_id, name in get_bg_videos_meta():
             p = VIDEOS_DIR / name
             if not p.exists():
-                p.write_bytes(bytes(data))
+                data = get_bg_video_data(vid_id)
+                if data:
+                    p.write_bytes(bytes(data))
         logger.info("Видео-фоны восстановлены")
     except Exception as e:
         logger.warning(f"Ошибка восстановления видео: {e}")
 
     try:
-        for aud_id, name, data in get_bg_audios():
+        for aud_id, name in get_bg_audios_meta():
             p = AUDIO_DIR / name
             if not p.exists():
-                p.write_bytes(bytes(data))
+                data = get_bg_audio_data(aud_id)
+                if data:
+                    p.write_bytes(bytes(data))
         logger.info("Аудио-треки восстановлены")
     except Exception as e:
         logger.warning(f"Ошибка восстановления аудио: {e}")
@@ -1254,21 +1262,21 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("✅ Фото удалено.", reply_markup=_back_keyboard("media_menu"))
 
     elif data == "delete_video_menu":
-        rows = get_bg_videos()
+        rows = get_bg_videos_meta()
         if not rows:
             await q.edit_message_text("Нет загруженных видео-фонов.",
                                       reply_markup=_back_keyboard("media_menu"))
             return
         btns = [[InlineKeyboardButton(f"🗑 {name}", callback_data=f"del_video_{vid_id}")]
-                for vid_id, name, _ in rows]
+                for vid_id, name in rows]
         btns.append([InlineKeyboardButton("◀ Назад", callback_data="media_menu")])
         await q.edit_message_text("Выбери видео для удаления:",
                                   reply_markup=InlineKeyboardMarkup(btns))
 
     elif data.startswith("del_video_"):
         vid_id = int(data.replace("del_video_", ""))
-        rows = get_bg_videos()
-        for row_id, name, _ in rows:
+        rows = get_bg_videos_meta()
+        for row_id, name in rows:
             if row_id == vid_id:
                 delete_bg_video(vid_id)
                 p = VIDEOS_DIR / name
@@ -1278,21 +1286,21 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("✅ Видео удалено.", reply_markup=_back_keyboard("media_menu"))
 
     elif data == "delete_audio_menu":
-        rows = get_bg_audios()
+        rows = get_bg_audios_meta()
         if not rows:
             await q.edit_message_text("Нет загруженных аудио-треков.",
                                       reply_markup=_back_keyboard("media_menu"))
             return
         btns = [[InlineKeyboardButton(f"🗑 {name}", callback_data=f"del_audio_{aud_id}")]
-                for aud_id, name, _ in rows]
+                for aud_id, name in rows]
         btns.append([InlineKeyboardButton("◀ Назад", callback_data="media_menu")])
         await q.edit_message_text("Выбери аудио для удаления:",
                                   reply_markup=InlineKeyboardMarkup(btns))
 
     elif data.startswith("del_audio_"):
         aud_id = int(data.replace("del_audio_", ""))
-        rows = get_bg_audios()
-        for row_id, name, _ in rows:
+        rows = get_bg_audios_meta()
+        for row_id, name in rows:
             if row_id == aud_id:
                 delete_bg_audio(aud_id)
                 p = AUDIO_DIR / name

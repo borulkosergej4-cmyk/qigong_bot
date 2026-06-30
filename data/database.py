@@ -273,6 +273,22 @@ def get_bg_videos():
             return cur.fetchall()
 
 
+def get_bg_videos_meta():
+    """Список без BYTEA data — для меню (не гонять видео по сети ради списка имён)."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, name FROM saved_bg_videos ORDER BY created_at")
+            return cur.fetchall()
+
+
+def get_bg_video_data(video_id: int):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT data FROM saved_bg_videos WHERE id=%s", (video_id,))
+            row = cur.fetchone()
+            return row[0] if row else None
+
+
 def delete_bg_video(video_id: int):
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -295,6 +311,22 @@ def get_bg_audios():
         with conn.cursor() as cur:
             cur.execute("SELECT id, name, data FROM saved_bg_audios ORDER BY created_at")
             return cur.fetchall()
+
+
+def get_bg_audios_meta():
+    """Список без BYTEA data — для меню (не гонять аудио по сети ради списка имён)."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, name FROM saved_bg_audios ORDER BY created_at")
+            return cur.fetchall()
+
+
+def get_bg_audio_data(audio_id: int):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT data FROM saved_bg_audios WHERE id=%s", (audio_id,))
+            row = cur.fetchone()
+            return row[0] if row else None
 
 
 def delete_bg_audio(audio_id: int):

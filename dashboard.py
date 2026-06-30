@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from data.database import (
     get_bookings, get_bookings_stats, get_posts_history, get_scheduled_posts,
-    get_subscription_links, get_content_plan, get_bg_videos, get_bg_audios, get_logo,
+    get_subscription_links, get_content_plan, get_bg_videos_meta, get_bg_audios_meta, get_logo,
     get_youtube_videos, init_db,
 )
 
@@ -658,8 +658,8 @@ def dashboard(username: str = Depends(require_auth)):
         links      = get_subscription_links()
         bookings   = get_bookings(25)
         stats      = get_bookings_stats()
-        videos     = get_bg_videos()
-        audios     = get_bg_audios()
+        videos     = get_bg_videos_meta()
+        audios     = get_bg_audios_meta()
         logo_data  = get_logo()
         cp_month   = datetime.utcnow().strftime("%Y-%m")
         cp_row     = get_content_plan(cp_month)
