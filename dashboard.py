@@ -5,7 +5,7 @@ import secrets
 from datetime import datetime, timedelta
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 
@@ -909,6 +909,14 @@ def dashboard(username: str = Depends(require_auth)):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/logo")
+def serve_logo():
+    data = get_logo()
+    if not data:
+        raise HTTPException(status_code=404, detail="Logo not uploaded yet")
+    return Response(content=bytes(data), media_type="image/png")
 
 
 @app.get("/youtube/callback", response_class=HTMLResponse)
