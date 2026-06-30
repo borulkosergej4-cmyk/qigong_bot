@@ -27,8 +27,8 @@ try:
 except Exception:
     pass
 
-if os.path.isdir("static"):
-    app.mount("/static", StaticFiles(directory="static"), name="static")
+os.makedirs("static", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 def require_auth(creds: HTTPBasicCredentials = Depends(security)):
