@@ -30,7 +30,7 @@ async def run_dashboard():
 
 async def run_admin_bot():
     import app_state
-    from admin_bot import Application, ADMIN_BOT_TOKEN, post_init, cmd_start, on_callback, on_message
+    from admin_bot import Application, ADMIN_BOT_TOKEN, post_init, cmd_start, on_callback, on_message, on_error
     from telegram.ext import CommandHandler, CallbackQueryHandler, MessageHandler, filters
 
     if not ADMIN_BOT_TOKEN:
@@ -46,6 +46,7 @@ async def run_admin_bot():
     telegram_app.add_handler(CommandHandler("start", cmd_start))
     telegram_app.add_handler(CallbackQueryHandler(on_callback))
     telegram_app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, on_message))
+    telegram_app.add_error_handler(on_error)
 
     app_state.admin_application = telegram_app
     app_state.webhook_secret = _secrets.token_hex(16)

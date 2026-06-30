@@ -2146,6 +2146,17 @@ def _ensure_youtube_plan():
         logger.error(f"_ensure_youtube_plan failed: {e}")
 
 
+async def on_error(update: object, ctx: ContextTypes.DEFAULT_TYPE):
+    """Глобальный перехват ошибок — без него упавшая кнопка молчит, будто не работает."""
+    logger.error("Ошибка в обработчике", exc_info=ctx.error)
+    err_text = f"⚠️ Ошибка: {ctx.error}"
+    try:
+        for admin_id in ADMIN_IDS:
+            await ctx.bot.send_message(admin_id, err_text[:4000])
+    except Exception as e:
+        logger.error(f"Не удалось отправить уведомление об ошибке: {e}")
+
+
 async def post_init(app: Application):
     try:
         init_db()
