@@ -196,6 +196,13 @@ async def _vk_post(text: str, photo_bytes: bytes | None = None) -> tuple[bool, s
                 msg = f"wall.post ошибка {err.get('error_code','?')}: {err.get('error_msg','?')}"
                 logger.error(f"VK {msg}")
                 return False, msg
+            if photo_bytes and not attachments:
+                warn = (
+                    "Фото не прикрепилось в VK (пост ушёл без фото) — "
+                    "похоже, истёк или не задан VK_USER_TOKEN. Обнови его в Railway."
+                )
+                logger.warning(f"VK post {warn}")
+                return True, warn
             return True, ""
     except Exception as e:
         logger.error(f"VK post error: {e}")
@@ -264,8 +271,9 @@ async def _get_photo(query: str = "qigong tai chi") -> bytes | None:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def _publish_any(bot: Bot, post_id: int, platform: str, text: str,
-                       photo_bytes: bytes | None) -> bool:
+                       photo_bytes: bytes | None) -> tuple[bool, str]:
     ok = True
+    warn = ""
     if platform in ("post_tg", "post_both"):
         try:
             await _publish_post_to_tg(bot, text, photo_bytes)
@@ -273,10 +281,12 @@ async def _publish_any(bot: Bot, post_id: int, platform: str, text: str,
             logger.error(f"TG publish error post {post_id}: {e}")
             ok = False
     if platform in ("post_vk", "post_both"):
-        vk_ok, _ = await _vk_post(text, photo_bytes)
+        vk_ok, vk_err = await _vk_post(text, photo_bytes)
         if not vk_ok:
             ok = False
-    return ok
+        elif vk_err:
+            warn = vk_err
+    return ok, warn
 
 
 async def check_and_publish_scheduled(bot: Bot):
@@ -294,14 +304,16 @@ async def check_and_publish_scheduled(bot: Bot):
             if failures >= _SCHED_MAX_RETRIES:
                 continue
             pb = bytes(photo_bytes) if photo_bytes else None
-            ok = await _publish_any(bot, post_id, platform, text, pb)
+            ok, warn = await _publish_any(bot, post_id, platform, text, pb)
             if ok:
                 mark_post_published(post_id)
                 _sched_failures.pop(post_id, None)
+                msg = f"✅ Пост #{post_id} опубликован автоматически."
+                if warn:
+                    msg += f"\n⚠️ {warn}"
                 for admin_id in ADMIN_IDS:
                     try:
-                        await bot.send_message(admin_id,
-                            f"✅ Пост #{post_id} опубликован автоматически.")
+                        await bot.send_message(admin_id, msg)
                     except Exception:
                         pass
             else:
@@ -1332,7 +1344,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         post_id = save_post(db_platform, text, photo, scheduled_at=None)
         mark_post_published(post_id)
         if ok_tg and ok_vk:
-            msg = "✅ Опубликовано!"
+            msg = "✅ Опубликовано!" + (f"\n⚠️ {vk_err}" if vk_err else "")
         elif vk_err:
             msg = f"⚠️ Ошибка VK: {vk_err}"
         else:
