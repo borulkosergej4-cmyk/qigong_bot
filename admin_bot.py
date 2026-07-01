@@ -46,6 +46,7 @@ from data.database import (
     save_bg_audio, get_bg_audios, delete_bg_audio, save_logo, get_logo,
     save_post_photo, get_post_photos, delete_post_photo,
     save_youtube_video, mark_youtube_published, get_youtube_videos,
+    update_youtube_video_script,
 )
 import youtube_api as _yt
 from agents.youtube_agent import youtube_master as _yt_master
@@ -799,8 +800,26 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         chunks = [script[i:i+3800] for i in range(0, len(script), 3800)]
         for i, chunk in enumerate(chunks):
             prefix = f"📜 Сценарий (часть {i+1}/{len(chunks)}):\n\n" if len(chunks) > 1 else "📜 Сценарий:\n\n"
-            kb = _back_keyboard("youtube_menu") if i == len(chunks) - 1 else None
+            if i == len(chunks) - 1:
+                kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✏️ Редактировать сценарий", callback_data="yt_edit_script")],
+                    [InlineKeyboardButton("◀ YouTube-меню", callback_data="youtube_menu")],
+                ])
+            else:
+                kb = None
             await ctx.bot.send_message(uid, prefix + chunk, reply_markup=kb)
+
+    elif data == "yt_edit_script":
+        gen = USER_GENERATED.get(uid, {})
+        if not gen.get("yt_prepared"):
+            await _safe_edit(q, "Сначала подготовь видео.", reply_markup=_youtube_keyboard())
+            return
+        USER_STATE[uid] = "yt_awaiting_script_edit"
+        await _safe_edit(
+            q,
+            "Отправь новый текст сценария. Старый сценарий будет заменён полностью.",
+            reply_markup=_back_keyboard("youtube_menu"),
+        )
 
     elif data == "yt_upload_prompt":
         await _safe_edit(q,
@@ -1468,6 +1487,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "awaiting_sub_name", "awaiting_sub_url", "awaiting_sub_desc",
         "awaiting_schedule_time", "reel_motivation", "reel_promo", "reel_announcement",
         "reel_custom", "awaiting_post_text_edit", "yt_awaiting_topic",
+        "yt_awaiting_script_edit",
     }
     if state in _TEXT_ONLY_STATES:
         if not update.message or not update.message.text:
@@ -1512,6 +1532,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("📜 Показать сценарий", callback_data=f"yt_show_script_{video_db_id}")],
+                [InlineKeyboardButton("✏️ Редактировать сценарий", callback_data="yt_edit_script")],
                 [InlineKeyboardButton("📤 Загрузить видео и опубликовать", callback_data="yt_upload_prompt")],
                 [InlineKeyboardButton("◀ YouTube-меню",       callback_data="youtube_menu")],
             ])
@@ -1525,6 +1546,22 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await ctx.bot.send_message(uid, f"❌ Ошибка подготовки видео: {e}",
                                        reply_markup=_youtube_keyboard())
             USER_STATE.pop(uid, None)
+        return
+
+    # ── YouTube: редактирование сценария ──────────────────────────────────────
+    if state == "yt_awaiting_script_edit":
+        new_script = update.message.text.strip()
+        gen = USER_GENERATED.setdefault(uid, {})
+        gen.setdefault("yt_prepared", {})["script"] = new_script
+        USER_STATE.pop(uid, None)
+        video_db_id = gen.get("yt_db_id")
+        if video_db_id:
+            await asyncio.to_thread(update_youtube_video_script, video_db_id, new_script)
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📤 Загрузить видео и опубликовать", callback_data="yt_upload_prompt")],
+            [InlineKeyboardButton("◀ YouTube-меню", callback_data="youtube_menu")],
+        ])
+        await update.message.reply_text("✅ Сценарий обновлён.", reply_markup=kb)
         return
 
     # ── Тема поста ────────────────────────────────────────────────────────────

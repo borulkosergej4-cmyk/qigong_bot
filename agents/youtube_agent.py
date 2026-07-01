@@ -17,6 +17,11 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# ── Ссылки, которые добавляются в описание каждого видео ────────────────────
+_BOOSTY_URL      = "https://boosty.to/s.borulko"
+_TG_CHANNEL      = os.getenv("TG_CHANNEL", "@baguazhangspb").strip()
+_TG_CHANNEL_URL  = f"https://t.me/{_TG_CHANNEL.lstrip('@')}"
+
 # ── Цвета и шрифты для превью ────────────────────────────────────────────────
 _FONTS_DIR = Path(__file__).parent.parent / "fonts"
 _THUMB_W   = 1280
@@ -117,6 +122,9 @@ class SeoAgent:
           Включи временные метки, если есть главы. Ссылки в конце.
         - Теги: 10–15 штук. Начни с точных («цигун для начинающих»), затем широкие («цигун»,
           «китайская гимнастика», «оздоровительная гимнастика», «здоровье»).
+        - Хэштеги: 5–8 штук для описания видео (не путать с тегами выше). Формат «#слово»
+          без пробелов внутри. Смесь тематических («#цигун», «#ушу», «#здоровье») и
+          форматных («#shorts» для Shorts-видео).
         - Категория: 26 (How-to) или 17 (Sports) — укажи код.
 
         Отвечай строго в формате JSON:
@@ -124,6 +132,7 @@ class SeoAgent:
           "title": "...",
           "description": "...",
           "tags": ["...", "..."],
+          "hashtags": ["#...", "#..."],
           "category_id": "26"
         }
     """).strip()
@@ -174,11 +183,11 @@ class SeoAgent:
         import json, re
         m = re.search(r'\{[\s\S]*\}', raw)
         if not m:
-            return {"title": raw[:100], "description": raw, "tags": [], "category_id": "26"}
+            return {"title": raw[:100], "description": raw, "tags": [], "hashtags": [], "category_id": "26"}
         try:
             return json.loads(m.group())
         except Exception:
-            return {"title": raw[:100], "description": raw, "tags": [], "category_id": "26"}
+            return {"title": raw[:100], "description": raw, "tags": [], "hashtags": [], "category_id": "26"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -432,13 +441,25 @@ class YoutubeMaster:
         )
         logger.info("Превью сгенерировано")
 
+        # Ссылки на канал/Boosty + хэштеги добавляем в конец описания
+        description = seo.get("description", "")
+        links_block = (
+            f"📌 Telegram-канал: {_TG_CHANNEL_URL}\n"
+            f"💛 Видеоуроки и поддержка на Boosty: {_BOOSTY_URL}"
+        )
+        description = description.rstrip() + "\n\n" + links_block
+        hashtags = seo.get("hashtags", [])
+        if hashtags:
+            description = description.rstrip() + "\n\n" + " ".join(hashtags)
+
         return {
             "topic":          topic,
             "format":         format_,
             "script":         script,
             "title":          seo.get("title", topic),
-            "description":    seo.get("description", ""),
+            "description":    description,
             "tags":           seo.get("tags", []),
+            "hashtags":       hashtags,
             "category_id":    seo.get("category_id", "26"),
             "thumbnail_bytes": thumbnail,
         }
