@@ -123,8 +123,6 @@ def _main_keyboard():
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    if user.id in ADMIN_IDS:
-        return
     _agent.clear_history(user.id)
     _signup.pop(user.id, None)
     greeting = (
@@ -198,18 +196,14 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     uid = update.effective_user.id
-    if uid in ADMIN_IDS:
-        return  # Администраторы пишут свободно — бот не реагирует
-
-    text = (msg.text or "").strip()
-    if not text:
-        return
 
     chat_type = update.effective_chat.type
 
     if chat_type == "channel":
         return
 
+    # Проверяем группу ДО проверки текста — иначе фото/стикеры/голосовые
+    # в группе выходили бы из хендлера раньше, чем сработает редирект в личку
     is_group = chat_type in ("group", "supergroup")
     if is_group:
         if msg.forward_from_chat or (msg.from_user and msg.from_user.is_bot):
@@ -224,6 +218,10 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
         except Exception as e:
             logger.error(f"Ошибка ответа в группе: {e}")
+        return
+
+    text = (msg.text or "").strip()
+    if not text:
         return
 
     await ctx.bot.send_chat_action(update.effective_chat.id, "typing")
@@ -303,7 +301,7 @@ def main():
     app = Application.builder().token(CLIENT_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CallbackQueryHandler(on_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, on_message))
 
     logger.info("Client bot запущен")
     app.run_polling(drop_pending_updates=True)
