@@ -605,6 +605,32 @@ def _extract_bg_frames(video_path: str, n_frames: int, out_dir: str) -> bool:
     return r.returncode == 0
 
 
+def concat_clips(clip_paths: list[str], output: str) -> None:
+    """Склеивает несколько видео по порядку в одно, приводя все клипы к 1080x1920/30fps."""
+    Path(output).parent.mkdir(parents=True, exist_ok=True)
+    n = len(clip_paths)
+    cmd = [_ffmpeg(), "-y"]
+    for p in clip_paths:
+        cmd += ["-i", p]
+    scale_parts = [
+        f"[{i}:v]scale=1080:1920:force_original_aspect_ratio=decrease,"
+        f"pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={FPS}[v{i}]"
+        for i in range(n)
+    ]
+    concat_inputs = "".join(f"[v{i}][{i}:a:0]" for i in range(n))
+    filter_complex = ";".join(scale_parts) + ";" + concat_inputs + f"concat=n={n}:v=1:a=1[outv][outa]"
+    cmd += [
+        "-filter_complex", filter_complex,
+        "-map", "[outv]", "-map", "[outa]",
+        "-c:v", "libx264", "-c:a", "aac", "-b:a", "128k",
+        "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "18",
+        output,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=max(180, n * 60))
+    if result.returncode != 0:
+        raise RuntimeError(f"ffmpeg concat failed:\n{result.stderr[-500:]}")
+
+
 def _extract_bg_audio(video_path: str, out_path: str) -> bool:
     cmd = [_ffmpeg(), "-y", "-i", video_path, "-vn", "-acodec", "aac", "-b:a", "128k", out_path]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
@@ -625,8 +651,9 @@ def _stitch(frames_dir: str, n_frames: int, output: str, audio_path: str | None 
             "-vframes", str(n_frames),
             "-t", str(duration),
             "-af", f"afade=t=out:st={fade_start:.2f}:d=1.5",
+            "-vf", "scale=1080:1920:flags=lanczos",
             "-c:v", "libx264", "-c:a", "aac", "-b:a", "128k",
-            "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "22",
+            "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "18",
             output,
         ]
     else:
@@ -635,8 +662,9 @@ def _stitch(frames_dir: str, n_frames: int, output: str, audio_path: str | None 
             "-framerate", str(FPS),
             "-i", f"{frames_dir}/f%04d.jpg",
             "-vframes", str(n_frames),
+            "-vf", "scale=1080:1920:flags=lanczos",
             "-c:v", "libx264",
-            "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "22",
+            "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "18",
             output,
         ]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)

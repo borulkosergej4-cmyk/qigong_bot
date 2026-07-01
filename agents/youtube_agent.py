@@ -204,7 +204,7 @@ class ThumbnailAgent:
         style:    'dark' | 'violet' | 'minimal'
         Возвращает JPEG bytes.
         """
-        from PIL import Image, ImageDraw, ImageFont, ImageFilter
+        from PIL import Image, ImageDraw
 
         img  = Image.new("RGB", (_THUMB_W, _THUMB_H), _PALETTE["bg_dark"])
         draw = ImageDraw.Draw(img)
@@ -295,7 +295,6 @@ class ThumbnailAgent:
 
     @staticmethod
     def _draw_gradient(img, color1: tuple, color2: tuple):
-        from PIL import Image
         w, h = img.size
         for y in range(h):
             t = y / h

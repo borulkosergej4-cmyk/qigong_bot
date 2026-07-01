@@ -9,7 +9,6 @@ import json
 import logging
 import os
 import random
-import secrets
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -41,9 +40,9 @@ from data.database import (
     approve_content_plan, get_content_plan, get_posts_history,
     get_scheduled_posts, init_db, mark_post_published, save_post,
     save_content_plan, get_subscription_links, add_subscription_link,
-    delete_subscription_link, save_bg_video, get_bg_videos, delete_bg_video,
+    delete_subscription_link, save_bg_video, delete_bg_video,
     get_bg_videos_meta, get_bg_video_data, get_bg_audios_meta, get_bg_audio_data,
-    save_bg_audio, get_bg_audios, delete_bg_audio, save_logo, get_logo,
+    save_bg_audio, delete_bg_audio, save_logo, get_logo,
     save_post_photo, get_post_photos, delete_post_photo,
     save_youtube_video, mark_youtube_published, get_youtube_videos,
     update_youtube_video_script,
@@ -53,7 +52,7 @@ from agents.youtube_agent import youtube_master as _yt_master
 from data.knowledge import CONTENT_PLAN_SYSTEM_PROMPT, POST_SYSTEM_PROMPT
 from py_render import (
     clear_logo_cache, render_announcement, render_motivation, render_promo,
-    _extract_bg_audio,
+    _extract_bg_audio, concat_clips,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -857,9 +856,66 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("🎁 Акция / оффер",      callback_data="reel_promo")],
                 [InlineKeyboardButton("📢 Анонс занятия",      callback_data="reel_announcement")],
                 [InlineKeyboardButton("✍️ Свой шаблон",        callback_data="reel_custom")],
+                [InlineKeyboardButton("🎞 Смонтировать клипы", callback_data="reel_montage")],
                 [InlineKeyboardButton("◀ Назад",               callback_data="main_menu")],
             ]),
         )
+
+    elif data == "reel_montage":
+        USER_GENERATED[uid] = {"clip_paths": []}
+        USER_STATE[uid] = "collecting_clips"
+        await q.edit_message_text(
+            "🎞 <b>Монтаж из клипов</b>\n\n"
+            "Присылай видеофайлы по одному, в том порядке, в котором их нужно склеить. "
+            "Когда закончишь — нажми «Готово».",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("❌ Отмена", callback_data="montage_cancel")],
+            ]),
+        )
+
+    elif data == "montage_cancel":
+        gen = USER_GENERATED.get(uid, {})
+        for p in gen.get("clip_paths", []):
+            Path(p).unlink(missing_ok=True)
+        USER_STATE.pop(uid, None)
+        USER_GENERATED.pop(uid, None)
+        await ctx.bot.send_message(uid, "Монтаж отменён.", reply_markup=_main_keyboard())
+
+    elif data == "montage_finish":
+        gen = USER_GENERATED.get(uid, {})
+        clips = gen.get("clip_paths", [])
+        if len(clips) < 2:
+            await ctx.bot.send_message(uid, "Нужно минимум 2 клипа, чтобы было что склеивать. Пришли ещё видео.")
+            return
+        USER_STATE.pop(uid, None)
+        wait_msg = await ctx.bot.send_message(uid, f"⏳ Склеиваю {len(clips)} клипов...")
+        try:
+            out = tempfile.mktemp(suffix=".mp4")
+            await asyncio.to_thread(concat_clips, clips, out)
+            gen["video_path"] = out
+            gen["caption"] = "Смонтированное видео"
+            USER_GENERATED[uid] = gen
+            for p in clips:
+                Path(p).unlink(missing_ok=True)
+            try:
+                await wait_msg.delete()
+            except Exception:
+                pass
+            with open(out, "rb") as f:
+                await ctx.bot.send_video(
+                    uid, video=f, supports_streaming=True,
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("📤 Telegram",   callback_data="reel_pub_tg")],
+                        [InlineKeyboardButton("📤 ВКонтакте", callback_data="reel_pub_vk")],
+                        [InlineKeyboardButton("📤 Обе",        callback_data="reel_pub_both")],
+                        [InlineKeyboardButton("◀ Отмена",      callback_data="main_menu")],
+                    ]),
+                    caption="Видео смонтировано. Куда публикуем?"
+                )
+        except Exception as e:
+            logger.error(f"Montage error: {e}", exc_info=True)
+            await ctx.bot.send_message(uid, f"Ошибка склейки: {e}", reply_markup=_main_keyboard())
 
     elif data == "reel_motivation":
         USER_GENERATED[uid] = {"reel_type": "motivation"}
@@ -1418,14 +1474,12 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "pub_platform_choice":
-        gen = USER_GENERATED.get(uid, {})
-        raw = gen.get("platform", "post_tg").replace("post_", "")
         await q.edit_message_text(
             "Где опубликовать?",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Telegram",   callback_data=f"pub_now_tg")],
-                [InlineKeyboardButton("ВКонтакте", callback_data=f"pub_now_vk")],
-                [InlineKeyboardButton("Обе",        callback_data=f"pub_now_both")],
+                [InlineKeyboardButton("Telegram",   callback_data="pub_now_tg")],
+                [InlineKeyboardButton("ВКонтакте", callback_data="pub_now_vk")],
+                [InlineKeyboardButton("Обе",        callback_data="pub_now_both")],
                 [InlineKeyboardButton("📅 По расписанию TG",  callback_data="pub_sched_tg")],
                 [InlineKeyboardButton("📅 По расписанию VK",  callback_data="pub_sched_vk")],
                 [InlineKeyboardButton("📅 По расписанию Обе", callback_data="pub_sched_both")],
@@ -1781,6 +1835,31 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         gen.update({"quote": quote, "subtext": subtext, "caption": quote})
         USER_GENERATED[uid] = gen
         await _ask_bg_video(update, ctx, uid)
+
+    # ── Сбор клипов для монтажа ───────────────────────────────────────────────
+    elif state == "collecting_clips":
+        if not (update.message.document or update.message.video):
+            await update.message.reply_text("Отправь видеофайл, либо нажми «Готово».")
+            return
+        doc = update.message.document or update.message.video
+        try:
+            file = await doc.get_file()
+            local_path = tempfile.mktemp(suffix=".mp4")
+            await file.download_to_drive(local_path)
+            gen = USER_GENERATED.setdefault(uid, {"clip_paths": []})
+            gen.setdefault("clip_paths", []).append(local_path)
+            USER_GENERATED[uid] = gen
+            n = len(gen["clip_paths"])
+            await update.message.reply_text(
+                f"Добавлено ({n}). Пришли ещё видео или нажми «Готово».",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(f"✅ Готово, смонтировать ({n})", callback_data="montage_finish")],
+                    [InlineKeyboardButton("❌ Отмена", callback_data="montage_cancel")],
+                ]),
+            )
+        except Exception as e:
+            logger.error(f"Ошибка загрузки клипа: {e}")
+            await update.message.reply_text(f"Не удалось загрузить видео: {e}")
 
     # ── Загрузка видео-фона ───────────────────────────────────────────────────
     elif state == "awaiting_bg_video":
