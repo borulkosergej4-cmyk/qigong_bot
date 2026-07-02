@@ -26,7 +26,7 @@ ADMIN_BOT_TOKEN = os.getenv("ADMIN_BOT_TOKEN", "").strip()
 _raw_ids = os.getenv("ADMIN_IDS", "").strip()
 ADMIN_IDS = [int(x) for x in _raw_ids.split(",") if x.strip().isdigit()]
 
-_agent = BaseAgent(CONFUCIUS_PROMPT)
+_agent = BaseAgent(CONFUCIUS_PROMPT, source="vk")
 
 # vk_user_id -> {"step": "name"/"phone", "name": str}
 _signup: dict[int, dict] = {}
@@ -61,8 +61,7 @@ def _looks_like_phone(text: str) -> bool:
 def _extract_lesson(user_id: int) -> str:
     """Извлекает выбранное занятие из истории диалога (ищет строку с временем HH:MM)."""
     import re as _re
-    from agents.base_agent import _histories
-    history = list(_histories.get(user_id, []))
+    history = list(_agent.get_history(user_id))
     time_re = _re.compile(r'\b\d{1,2}:\d{2}\b')
     for msg in reversed(history):
         if msg.get("role") == "assistant":

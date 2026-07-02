@@ -1,6 +1,5 @@
 import os
 import logging
-from collections import defaultdict
 
 import anthropic
 import httpx
@@ -19,8 +18,6 @@ _GROQ_MODEL         = "llama-3.3-70b-versatile"
 _GROQ_FALLBACK      = "llama-3.1-8b-instant"
 
 _MAX_HISTORY = 20
-
-_histories: dict[int, list[dict]] = defaultdict(list)
 
 _anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY) if ANTHROPIC_KEY else None
 
@@ -64,14 +61,50 @@ def _call_groq(messages: list, system: str, model: str) -> str:
 
 
 class BaseAgent:
-    def __init__(self, system_prompt: str):
+    def __init__(self, system_prompt: str, source: str = "telegram"):
         self.system = system_prompt
+        self.source = source
+        self.conversation_histories: dict[int, list] = {}
+        self._loaded_from_db: set[int] = set()
 
     def _history(self, user_id: int) -> list:
-        return _histories[user_id]
+        return self.conversation_histories.setdefault(user_id, [])
+
+    def get_history(self, user_id: int) -> list:
+        return self.conversation_histories.get(user_id, [])
+
+    async def ensure_loaded(self, user_id: int) -> list:
+        """Подгружает историю из БД при первом обращении к user_id в этом процессе —
+        чтобы вернувшийся клиент не терял контекст после рестарта Railway или между визитами."""
+        if user_id not in self._loaded_from_db:
+            self._loaded_from_db.add(user_id)
+            if user_id not in self.conversation_histories:
+                try:
+                    import asyncio
+                    from data.database import load_chat_history
+                    self.conversation_histories[user_id] = await asyncio.to_thread(
+                        load_chat_history, user_id, self.source
+                    )
+                except Exception as e:
+                    logger.error(f"ensure_loaded error: {e}")
+                    self.conversation_histories[user_id] = []
+        return self._history(user_id)
+
+    def _persist(self, user_id: int):
+        try:
+            from data.database import save_chat_history
+            save_chat_history(user_id, self.source, self.conversation_histories.get(user_id, []))
+        except Exception as e:
+            logger.error(f"_persist error: {e}")
 
     def clear_history(self, user_id: int):
-        _histories.pop(user_id, None)
+        self.conversation_histories.pop(user_id, None)
+        self._loaded_from_db.discard(user_id)
+        try:
+            from data.database import clear_chat_history_db
+            clear_chat_history_db(user_id, self.source)
+        except Exception as e:
+            logger.error(f"clear_history db error: {e}")
 
     def seed(self, user_id: int, content: str):
         """Добавить стартовое сообщение ассистента, чтобы AI не представлялся заново."""
@@ -87,6 +120,7 @@ class BaseAgent:
     )
 
     async def ask(self, user_id: int, text: str) -> str:
+        await self.ensure_loaded(user_id)
         history = self._history(user_id)
         history.append({"role": "user", "content": text})
         if len(history) > _MAX_HISTORY:
@@ -149,6 +183,8 @@ class BaseAgent:
         reply = await self._generate(history, system=system)
 
         history.append({"role": "assistant", "content": reply})
+        import asyncio
+        await asyncio.to_thread(self._persist, user_id)
         return reply
 
     @staticmethod

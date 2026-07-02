@@ -32,7 +32,7 @@ ADMIN_BOT_TOKEN  = os.getenv("ADMIN_BOT_TOKEN", "").strip()
 _raw_ids = os.getenv("ADMIN_IDS", "").strip()
 ADMIN_IDS = [int(x) for x in _raw_ids.split(",") if x.strip().isdigit()]
 
-_agent = BaseAgent(CONFUCIUS_PROMPT)
+_agent = BaseAgent(CONFUCIUS_PROMPT, source="telegram")
 
 # user_id -> {"step": "name"/"phone", "name": str, "username": str, "lesson": str}
 _signup: dict[int, dict] = {}
@@ -69,8 +69,7 @@ def _is_spam(text: str) -> bool:
 
 def _extract_lesson(uid: int) -> str:
     """Извлекает выбранное занятие из истории диалога (ищет строку с временем HH:MM)."""
-    from agents.base_agent import _histories
-    history = list(_histories.get(uid, []))
+    history = list(_agent.get_history(uid))
     time_re = re.compile(r'\b\d{1,2}:\d{2}\b')
     for msg in reversed(history):
         if msg.get("role") == "assistant":

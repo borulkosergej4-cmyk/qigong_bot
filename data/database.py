@@ -127,6 +127,17 @@ def init_db():
                 ALTER TABLE youtube_videos ADD COLUMN IF NOT EXISTS format TEXT
             """)
 
+            # История диалога Конфуция — переживает рестарты Railway и визиты клиента
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS chat_history (
+                    user_id    TEXT NOT NULL,
+                    source     TEXT NOT NULL,
+                    history    JSONB NOT NULL DEFAULT '[]',
+                    updated_at TIMESTAMPTZ DEFAULT NOW(),
+                    PRIMARY KEY (user_id, source)
+                )
+            """)
+
             # Задачи стратегии роста («Бадуаньцзин за 21 день»)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS growth_tasks (
@@ -226,6 +237,56 @@ def set_last_growth_reminder_date(date_str: str):
                 (date_str.encode(),),
             )
         conn.commit()
+
+
+# ── История диалога Конфуция ─────────────────────────────────────────────────
+
+def save_chat_history(user_id, source: str, history: list):
+    import json
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """INSERT INTO chat_history (user_id, source, history, updated_at)
+                       VALUES (%s, %s, %s, NOW())
+                       ON CONFLICT (user_id, source) DO UPDATE
+                       SET history = EXCLUDED.history, updated_at = NOW()""",
+                    (str(user_id), source, json.dumps(history, ensure_ascii=False)),
+                )
+            conn.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"save_chat_history error: {e}")
+
+
+def load_chat_history(user_id, source: str) -> list:
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT history FROM chat_history WHERE user_id = %s AND source = %s",
+                    (str(user_id), source),
+                )
+                row = cur.fetchone()
+        return row[0] if row and row[0] else []
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"load_chat_history error: {e}")
+        return []
+
+
+def clear_chat_history_db(user_id, source: str):
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM chat_history WHERE user_id = %s AND source = %s",
+                    (str(user_id), source),
+                )
+            conn.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"clear_chat_history_db error: {e}")
 
 
 # ── Посты ─────────────────────────────────────────────────────────────────────
