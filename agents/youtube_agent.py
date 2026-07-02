@@ -87,6 +87,9 @@ class ScriptAgent:
         prompt = f"Тема: {topic}\nФормат: {format_}"
         if duration_hint:
             prompt += f"\nДлительность: {duration_hint}"
+        if "бадуаньцзин" in topic.lower() or "упражнение" in topic.lower():
+            from data.knowledge import BADUANJIN_TECHNIQUE
+            prompt += f"\n\nСправочник по технике (используй для точности, не копируй дословно):\n{BADUANJIN_TECHNIQUE}"
 
         return self._call(prompt)
 
