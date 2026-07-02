@@ -126,6 +126,105 @@ def init_db():
             cur.execute("""
                 ALTER TABLE youtube_videos ADD COLUMN IF NOT EXISTS format TEXT
             """)
+
+            # Задачи стратегии роста («Бадуаньцзин за 21 день»)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS growth_tasks (
+                    id         SERIAL PRIMARY KEY,
+                    section    TEXT NOT NULL,
+                    text       TEXT NOT NULL,
+                    done       BOOLEAN DEFAULT FALSE,
+                    sort_order INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+        conn.commit()
+    _seed_growth_tasks()
+
+
+# ── Стратегия роста ──────────────────────────────────────────────────────────
+
+_GROWTH_TASKS_SEED = [
+    ("launch", "Неделя 1: структурировать видео в 21-дневную прогрессию, снять недостающее, собрать PDF-схему движений"),
+    ("launch", "Неделя 2: сообщить текущим подписчикам Boosty, пост в VK/TG от Сергея лично, сообщение через Конфуция интересовавшимся"),
+    ("launch", "Неделя 3: серия YouTube Shorts-тизеров по упражнениям с CTA на Boosty, пост с первыми отзывами"),
+    ("launch", "Неделя 4: живой Q&A с Сергеем для когорты, бесплатное очное занятие по итогам, решить — повторять когортами или сделать вечный доступ"),
+    ("playbook", "Прямое сообщение текущим подписчикам Boosty"),
+    ("playbook", "Догрев тех, кто писал Конфуцию, но не записался"),
+    ("playbook", "YouTube Shorts-тизеры с CTA на Boosty"),
+    ("playbook", "Пост от Сергея лично в VK/TG"),
+    ("playbook", "Реферал для клиентов клуба — приведи друга, бесплатное занятие"),
+    ("playbook", "Win-back по «зависшим» заявкам из bookings"),
+    ("playbook", "Бартер с локальными блогерами про ТКМ/оздоровление"),
+    ("playbook", "Комментарии-ценность в тематических пабликах про цигун/ушу"),
+    ("playbook", "Личные сообщения активным подписчикам паблика"),
+    ("playbook", "Кросс-промо со студией «Стремление»"),
+    ("revenue", "Перенести персистентную историю диалога Конфуция из stremlenie_bot в qigong_bot"),
+    ("revenue", "Сделать так, чтобы CTA на Boosty звучал в самом сценарии видео, не только в описании"),
+    ("revenue", "Win-back по базе bookings"),
+    ("revenue", "Перейти на когортный запуск вместо вечного доступа"),
+    ("revenue", "Кросс-промо между «Стремлением» и цигун"),
+]
+
+
+def _seed_growth_tasks():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM growth_tasks")
+            if cur.fetchone()[0] > 0:
+                return
+            for i, (section, text) in enumerate(_GROWTH_TASKS_SEED):
+                cur.execute(
+                    "INSERT INTO growth_tasks (section, text, sort_order) VALUES (%s, %s, %s)",
+                    (section, text, i),
+                )
+        conn.commit()
+
+
+def get_growth_tasks():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, section, text, done FROM growth_tasks ORDER BY sort_order"
+            )
+            return cur.fetchall()
+
+
+def toggle_growth_task(task_id: int):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE growth_tasks SET done = NOT done WHERE id=%s", (task_id,)
+            )
+        conn.commit()
+
+
+def get_next_pending_task():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, section, text FROM growth_tasks WHERE done=FALSE "
+                "ORDER BY sort_order LIMIT 1"
+            )
+            return cur.fetchone()
+
+
+def get_last_growth_reminder_date() -> str | None:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT data FROM bot_config WHERE key='growth_reminder_date'")
+            row = cur.fetchone()
+    return bytes(row[0]).decode() if row and row[0] else None
+
+
+def set_last_growth_reminder_date(date_str: str):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO bot_config (key, data, updated_at) VALUES ('growth_reminder_date', %s, NOW()) "
+                "ON CONFLICT (key) DO UPDATE SET data=EXCLUDED.data, updated_at=NOW()",
+                (date_str.encode(),),
+            )
         conn.commit()
 
 

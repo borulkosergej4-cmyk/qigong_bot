@@ -46,6 +46,8 @@ from data.database import (
     save_post_photo, get_post_photos, delete_post_photo,
     save_youtube_video, mark_youtube_published, get_youtube_videos,
     update_youtube_video_script, update_youtube_video_description,
+    get_growth_tasks, toggle_growth_task, get_next_pending_task,
+    get_last_growth_reminder_date, set_last_growth_reminder_date,
 )
 import youtube_api as _yt
 from agents.youtube_agent import youtube_master as _yt_master
@@ -358,6 +360,47 @@ async def _scheduled_post_loop(bot: Bot) -> None:
             return
 
 
+async def _growth_reminder_loop(bot: Bot) -> None:
+    """Раз в день (после 10:00 по Москве) напоминает о следующей невыполненной задаче
+    из плана роста, если сегодня напоминание ещё не отправлялось."""
+    await asyncio.sleep(15)
+    logger.info("_growth_reminder_loop: запущен")
+    while True:
+        try:
+            msk_now = datetime.utcnow() + timedelta(hours=3)
+            today_str = msk_now.strftime("%Y-%m-%d")
+            last_date = await asyncio.to_thread(get_last_growth_reminder_date)
+            if last_date != today_str and msk_now.hour >= 10:
+                task = await asyncio.to_thread(get_next_pending_task)
+                if task:
+                    task_id, section, task_text = task
+                    section_name = _GROWTH_SECTION_NAMES.get(section, section)
+                    kb = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("✅ Сделано", callback_data=f"gt_toggle_{task_id}")],
+                        [InlineKeyboardButton("📋 Весь план", callback_data="growth_menu")],
+                    ])
+                    for admin_id in ADMIN_IDS:
+                        try:
+                            await bot.send_message(
+                                admin_id,
+                                f"🚀 Напоминание по плану роста\n\n{section_name}\n{task_text}",
+                                reply_markup=kb,
+                            )
+                        except Exception as e:
+                            logger.warning(f"Не удалось отправить напоминание {admin_id}: {e}")
+                await asyncio.to_thread(set_last_growth_reminder_date, today_str)
+        except asyncio.CancelledError:
+            logger.info("_growth_reminder_loop: завершение (CancelledError)")
+            return
+        except Exception as e:
+            logger.error(f"_growth_reminder_loop error: {e}", exc_info=True)
+        try:
+            await asyncio.sleep(1800)
+        except asyncio.CancelledError:
+            logger.info("_growth_reminder_loop: sleep прерван, завершение")
+            return
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Восстановление медиа после рестарта Railway
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -420,6 +463,7 @@ def _main_keyboard():
         [InlineKeyboardButton("🔗 Подписные ссылки",   callback_data="subscriptions")],
         [InlineKeyboardButton("🎥 Медиа",              callback_data="media_menu")],
         [InlineKeyboardButton("📋 История постов",     callback_data="posts_history")],
+        [InlineKeyboardButton("🚀 План роста",         callback_data="growth_menu")],
     ])
 
 
@@ -444,6 +488,30 @@ def _platform_keyboard(prefix: str = "platform"):
 
 def _back_keyboard(cb: str = "main_menu"):
     return InlineKeyboardMarkup([[InlineKeyboardButton("◀ Назад", callback_data=cb)]])
+
+
+_GROWTH_SECTION_NAMES = {
+    "launch": "📅 План запуска",
+    "playbook": "📣 Плейбук клиентов",
+    "revenue": "💰 Рост дохода",
+}
+
+
+async def _render_growth_menu():
+    tasks = await asyncio.to_thread(get_growth_tasks)
+    done_n = sum(1 for _, _, _, done in tasks if done)
+    text = f"🚀 План роста «Бадуаньцзин за 21 день»\n\nВыполнено {done_n} из {len(tasks)}. Нажми на задачу, чтобы отметить."
+    btns = []
+    current_section = None
+    for tid, section, task_text, done in tasks:
+        if section != current_section:
+            current_section = section
+            btns.append([InlineKeyboardButton(_GROWTH_SECTION_NAMES.get(section, section), callback_data="growth_menu")])
+        mark = "✅" if done else "⬜"
+        label = f"{mark} {task_text[:55]}"
+        btns.append([InlineKeyboardButton(label, callback_data=f"gt_toggle_{tid}")])
+    btns.append([InlineKeyboardButton("◀ Назад", callback_data="main_menu")])
+    return text, InlineKeyboardMarkup(btns)
 
 
 async def _safe_edit(q, text: str, reply_markup=None, **kwargs):
@@ -787,6 +855,16 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             snippet = (text or "")[:80]
             lines.append(f"#{pid} [{platform}] {created_msk}\n{status}\n{snippet}…")
         await q.edit_message_text("\n\n".join(lines), reply_markup=_back_keyboard())
+
+    elif data == "growth_menu":
+        text, kb = await _render_growth_menu()
+        await _safe_edit(q, text, reply_markup=kb)
+
+    elif data.startswith("gt_toggle_"):
+        task_id = int(data.replace("gt_toggle_", ""))
+        await asyncio.to_thread(toggle_growth_task, task_id)
+        text, kb = await _render_growth_menu()
+        await _safe_edit(q, text, reply_markup=kb)
 
     elif data.startswith("yt_show_script_"):
         video_db_id = int(data.replace("yt_show_script_", ""))
@@ -2350,6 +2428,7 @@ async def post_init(app: Application):
     _ensure_youtube_plan()
     asyncio.create_task(_restore_media())
     asyncio.create_task(_scheduled_post_loop(app.bot))
+    asyncio.create_task(_growth_reminder_loop(app.bot))
     logger.info("admin_bot запущен v4")
 
 
