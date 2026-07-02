@@ -52,6 +52,20 @@ _SCHEDULE_WORDS = (
     "прийти", "попасть", "приходить", "онлайн",
 )
 
+_SPAM_PATTERNS = re.compile(
+    r"(https?://|t\.me/|@[a-zA-Z0-9_]{4,}|"
+    r"предлага[юеё]|мои услуги|наши услуги|прайс|прайслист|"
+    r"реклам[аеуы]|продви[жг]|раскрутк|накрутк|подписчик|"
+    r"зараб[оа]т[аок]|пассивный доход|инвест|крипто|"
+    r"скидк[аеуи]|акци[яею]|успей|только сегодня|"
+    r"заказ[ыаеу]|оптом|купить|продаю|продаём)",
+    re.IGNORECASE,
+)
+
+
+def _is_spam(text: str) -> bool:
+    return bool(_SPAM_PATTERNS.search(text))
+
 
 def _extract_lesson(uid: int) -> str:
     """Извлекает выбранное занятие из истории диалога (ищет строку с временем HH:MM)."""
@@ -207,6 +221,16 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     is_group = chat_type in ("group", "supergroup")
     if is_group:
         if msg.forward_from_chat or (msg.from_user and msg.from_user.is_bot):
+            return
+        if _is_spam(msg.text or ""):
+            try:
+                await ctx.bot.delete_message(msg.chat_id, msg.message_id)
+            except Exception as e:
+                logger.error(f"Не удалось удалить спам: {e}")
+            try:
+                await ctx.bot.ban_chat_member(msg.chat_id, uid)
+            except Exception as e:
+                logger.error(f"Не удалось забанить спамера: {e}")
             return
         bot_me = await ctx.bot.get_me()
         try:

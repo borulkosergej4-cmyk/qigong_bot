@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 
 import httpx
 from dotenv import load_dotenv
@@ -30,25 +31,48 @@ _agent = BaseAgent(CONFUCIUS_PROMPT)
 # vk_user_id -> {"step": "name"/"phone", "name": str}
 _signup: dict[int, dict] = {}
 
-_SIGNUP_KEYWORDS = (
-    "записаться", "запишите", "запиши меня", "хочу попасть",
-    "как попасть", "хочу прийти", "как записаться", "хочу записаться",
-    "хотел бы записаться", "хотела бы записаться", "можно записаться",
-    "как мне записаться", "запись к сергею", "попасть на занятие",
-    "прийти на занятие", "хочу на занятие", "запись на занятие",
+# Фразы, которые означают что агент просит имя пользователя (см. CONFUCIUS_PROMPT,
+# Шаг 2: "Записываю вас на [занятие]. Как вас зовут?") — тот же принцип, что в bot.py
+_ASK_NAME_PHRASES = (
+    "как вас зовут", "как вас называть", "ваше имя", "напишите своё имя",
+    "напишите имя", "оставьте имя", "представьтесь", "как вас звать",
+    "скажите своё имя", "напишите ваше имя",
+)
+
+_SPAM_PATTERNS = re.compile(
+    r"(https?://|t\.me/|@[a-zA-Z0-9_]{4,}|"
+    r"предлага[юеё]|мои услуги|наши услуги|прайс|прайслист|"
+    r"реклам[аеуы]|продви[жг]|раскрутк|накрутк|подписчик|"
+    r"зараб[оа]т[аок]|пассивный доход|инвест|крипто|"
+    r"скидк[аеуи]|акци[яею]|успей|только сегодня|"
+    r"заказ[ыаеу]|оптом|купить|продаю|продаём)",
+    re.IGNORECASE,
 )
 
 
-def _wants_signup(text: str) -> bool:
-    t = text.lower()
-    return any(kw in t for kw in _SIGNUP_KEYWORDS)
+def _is_spam(text: str) -> bool:
+    return bool(_SPAM_PATTERNS.search(text))
 
 
 def _looks_like_phone(text: str) -> bool:
     return sum(c.isdigit() for c in text) >= 7
 
 
-async def _notify_admins(name: str, phone: str):
+def _extract_lesson(user_id: int) -> str:
+    """Извлекает выбранное занятие из истории диалога (ищет строку с временем HH:MM)."""
+    import re as _re
+    from agents.base_agent import _histories
+    history = list(_histories.get(user_id, []))
+    time_re = _re.compile(r'\b\d{1,2}:\d{2}\b')
+    for msg in reversed(history):
+        if msg.get("role") == "assistant":
+            for line in msg.get("content", "").split("\n"):
+                if time_re.search(line) and len(line.strip()) < 150:
+                    return line.strip()
+    return ""
+
+
+async def _notify_admins(name: str, phone: str, lesson: str = ""):
     if not ADMIN_BOT_TOKEN or not ADMIN_IDS:
         return
     from telegram import Bot
@@ -56,7 +80,8 @@ async def _notify_admins(name: str, phone: str):
         f"🔔 Новая заявка на занятие\n"
         f"👤 Имя: {name}\n"
         f"📱 Телефон: {phone}\n"
-        f"📲 Источник: VK"
+        + (f"📅 Занятие: {lesson}\n" if lesson else "")
+        + f"📲 Источник: VK"
     )
     bot = Bot(token=ADMIN_BOT_TOKEN)
     for aid in ADMIN_IDS:
@@ -111,7 +136,6 @@ async def _poll():
 
                 if "failed" in result:
                     logger.warning(f"VK long poll failed={result['failed']}, перезапускаю")
-                    await _poll()
                     return
 
                 ts = result["ts"]
@@ -132,6 +156,10 @@ async def _poll():
 
 async def _handle(user_id: int, text: str):
     try:
+        if _is_spam(text) and not _signup.get(user_id):
+            logger.warning(f"VK: похоже на спам от {user_id}, игнорирую: {text[:80]!r}")
+            return
+
         state = _signup.get(user_id)
 
         if state and state["step"] == "name":
@@ -161,30 +189,29 @@ async def _handle(user_id: int, text: str):
                 await _send_message(user_id,
                     ai_reply + "\n\nНапишите ваш номер телефона, чтобы завершить запись:")
                 return
-            name = _signup.pop(user_id)["name"]
+            saved = _signup.pop(user_id)
+            name = saved["name"]
             phone = text
+            lesson = saved.get("lesson") or _extract_lesson(user_id)
             try:
                 await asyncio.to_thread(
-                    save_booking, name, phone, "vk", str(user_id), str(user_id)
+                    save_booking, name, phone, "vk", str(user_id), str(user_id), lesson
                 )
             except Exception as e:
                 logger.error(f"Ошибка сохранения заявки VK: {e}")
-            await _notify_admins(name, phone)
+            await _notify_admins(name, phone, lesson)
             _agent.clear_history(user_id)
             await _send_message(user_id,
                 f"Записал вас, {name}. Сергей свяжется с вами в ближайшее время.")
             return
 
-        if _wants_signup(text):
-            _signup[user_id] = {"step": "name"}
-            await _send_message(
-                user_id,
-                "Оставьте имя и номер телефона — Сергей свяжется с вами и подберёт удобное время.\n\n"
-                "Как вас зовут?"
-            )
-            return
-
+        # Обычный диалог через агента — включая просьбы записаться: согласно
+        # CONFUCIUS_PROMPT агент сначала покажет расписание и уточнит день/время,
+        # и лишь когда сам спросит "Как вас зовут?" — переходим к сбору контактов
+        # (тот же принцип, что в bot.py для Telegram)
         reply = await _agent.ask(user_id, text)
+        if not _signup.get(user_id) and any(p in reply.lower() for p in _ASK_NAME_PHRASES):
+            _signup[user_id] = {"step": "name", "lesson": _extract_lesson(user_id)}
         await _send_message(user_id, reply)
 
     except Exception as e:
