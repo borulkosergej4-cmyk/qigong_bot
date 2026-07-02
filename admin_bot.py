@@ -45,7 +45,7 @@ from data.database import (
     save_bg_audio, delete_bg_audio, save_logo, get_logo,
     save_post_photo, get_post_photos, delete_post_photo,
     save_youtube_video, mark_youtube_published, get_youtube_videos,
-    update_youtube_video_script,
+    update_youtube_video_script, update_youtube_video_description,
 )
 import youtube_api as _yt
 from agents.youtube_agent import youtube_master as _yt_master
@@ -820,6 +820,37 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             reply_markup=_back_keyboard("youtube_menu"),
         )
 
+    elif data.startswith("yt_show_desc_"):
+        video_db_id = int(data.replace("yt_show_desc_", ""))
+        gen = USER_GENERATED.get(uid, {})
+        description = gen.get("yt_prepared", {}).get("description", "")
+        if not description:
+            await _safe_edit(q, "Описание не найдено.", reply_markup=_back_keyboard("youtube_menu"))
+            return
+        chunks = [description[i:i+3800] for i in range(0, len(description), 3800)]
+        for i, chunk in enumerate(chunks):
+            prefix = f"📝 Описание (часть {i+1}/{len(chunks)}):\n\n" if len(chunks) > 1 else "📝 Описание:\n\n"
+            if i == len(chunks) - 1:
+                kb = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✏️ Редактировать описание", callback_data="yt_edit_desc")],
+                    [InlineKeyboardButton("◀ YouTube-меню", callback_data="youtube_menu")],
+                ])
+            else:
+                kb = None
+            await ctx.bot.send_message(uid, prefix + chunk, reply_markup=kb)
+
+    elif data == "yt_edit_desc":
+        gen = USER_GENERATED.get(uid, {})
+        if not gen.get("yt_prepared"):
+            await _safe_edit(q, "Сначала подготовь видео.", reply_markup=_youtube_keyboard())
+            return
+        USER_STATE[uid] = "yt_awaiting_desc_edit"
+        await _safe_edit(
+            q,
+            "Отправь новый текст описания. Старое описание будет заменено полностью.",
+            reply_markup=_back_keyboard("youtube_menu"),
+        )
+
     elif data == "yt_upload_prompt":
         await _safe_edit(q,
             "📤 Загрузи видеофайл (.mp4) ответным сообщением.\n\n"
@@ -1541,7 +1572,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "awaiting_sub_name", "awaiting_sub_url", "awaiting_sub_desc",
         "awaiting_schedule_time", "reel_motivation", "reel_promo", "reel_announcement",
         "reel_custom", "awaiting_post_text_edit", "yt_awaiting_topic",
-        "yt_awaiting_script_edit",
+        "yt_awaiting_script_edit", "yt_awaiting_desc_edit",
     }
     if state in _TEXT_ONLY_STATES:
         if not update.message or not update.message.text:
@@ -1587,6 +1618,8 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("📜 Показать сценарий", callback_data=f"yt_show_script_{video_db_id}")],
                 [InlineKeyboardButton("✏️ Редактировать сценарий", callback_data="yt_edit_script")],
+                [InlineKeyboardButton("📝 Показать описание", callback_data=f"yt_show_desc_{video_db_id}")],
+                [InlineKeyboardButton("✏️ Редактировать описание", callback_data="yt_edit_desc")],
                 [InlineKeyboardButton("📤 Загрузить видео и опубликовать", callback_data="yt_upload_prompt")],
                 [InlineKeyboardButton("◀ YouTube-меню",       callback_data="youtube_menu")],
             ])
@@ -1616,6 +1649,22 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("◀ YouTube-меню", callback_data="youtube_menu")],
         ])
         await update.message.reply_text("✅ Сценарий обновлён.", reply_markup=kb)
+        return
+
+    # ── YouTube: редактирование описания ──────────────────────────────────────
+    if state == "yt_awaiting_desc_edit":
+        new_desc = update.message.text.strip()
+        gen = USER_GENERATED.setdefault(uid, {})
+        gen.setdefault("yt_prepared", {})["description"] = new_desc
+        USER_STATE.pop(uid, None)
+        video_db_id = gen.get("yt_db_id")
+        if video_db_id:
+            await asyncio.to_thread(update_youtube_video_description, video_db_id, new_desc)
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📤 Загрузить видео и опубликовать", callback_data="yt_upload_prompt")],
+            [InlineKeyboardButton("◀ YouTube-меню", callback_data="youtube_menu")],
+        ])
+        await update.message.reply_text("✅ Описание обновлено.", reply_markup=kb)
         return
 
     # ── Тема поста ────────────────────────────────────────────────────────────

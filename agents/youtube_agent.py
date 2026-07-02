@@ -11,6 +11,7 @@
 
 import logging
 import os
+import re
 import textwrap
 from io import BytesIO
 from pathlib import Path
@@ -21,6 +22,13 @@ logger = logging.getLogger(__name__)
 _BOOSTY_URL      = "https://boosty.to/s.borulko"
 _TG_CHANNEL      = os.getenv("TG_CHANNEL", "@baguazhangspb").strip()
 _TG_CHANNEL_URL  = f"https://t.me/{_TG_CHANNEL.lstrip('@')}"
+
+# ── Термины, которые не должны склоняться (цигун, Бадуаньцзин и т.п.) ───────
+_DECLENSION_FIX = re.compile(r'\b(цигун|Бадуаньцзин|ушу|Тайцзицюань)(а|у|ом|е)\b')
+
+
+def _fix_declensions(text: str) -> str:
+    return _DECLENSION_FIX.sub(lambda m: m.group(1), text) if text else text
 
 # ── Цвета и шрифты для превью ────────────────────────────────────────────────
 _FONTS_DIR = Path(__file__).parent.parent / "fonts"
@@ -61,6 +69,11 @@ class ScriptAgent:
 
         Стиль: прямой, живой, без канцелярита. Не «Цигун помогает», а
         «Три минуты этого упражнения снижают давление — я покажу как».
+
+        ВАЖНО: термины «цигун», «Бадуаньцзин», «ушу», «Тайцзицюань» — НЕ склонять
+        ни в одном падеже. Всегда именительный падеж, независимо от контекста:
+        «занятие цигун» (не «цигуна»), «комплекс Бадуаньцзин» (не «Бадуаньцзина»),
+        «практика ушу» (не «ушу» склонённое), «стиль Тайцзицюань» (не «Тайцзицюаня»).
 
         Отвечай только сценарием, без вводных фраз.
     """).strip()
@@ -126,6 +139,11 @@ class SeoAgent:
           без пробелов внутри. Смесь тематических («#цигун», «#ушу», «#здоровье») и
           форматных («#shorts» для Shorts-видео).
         - Категория: 26 (How-to) или 17 (Sports) — укажи код.
+
+        ВАЖНО: термины «цигун», «Бадуаньцзин», «ушу», «Тайцзицюань» — НЕ склонять
+        ни в одном падеже, ни в заголовке, ни в описании, ни в тегах. Всегда
+        именительный падеж: «занятие цигун» (не «цигуна»), «комплекс Бадуаньцзин»
+        (не «Бадуаньцзина»).
 
         Отвечай строго в формате JSON:
         {
@@ -425,23 +443,27 @@ class YoutubeMaster:
         logger.info(f"YoutubeMaster: готовлю видео «{topic}» [{format_}]")
 
         # 1. Сценарий
-        script = self.script_agent.generate(topic, format_=format_, duration_hint=duration_hint)
+        script = _fix_declensions(
+            self.script_agent.generate(topic, format_=format_, duration_hint=duration_hint)
+        )
         logger.info("Сценарий готов")
 
         # 2. SEO
         seo = self.seo_agent.optimize(topic, script_excerpt=script[:800])
         logger.info(f"SEO готов: {seo.get('title', '?')}")
+        title = _fix_declensions(seo.get("title", topic))
+        tags = [_fix_declensions(t) for t in seo.get("tags", [])]
 
         # 3. Превью
         thumbnail = self.thumbnail_agent.generate(
-            title=seo.get("title", topic),
-            subtitle=topic if topic != seo.get("title", "") else "",
+            title=title,
+            subtitle=topic if topic != title else "",
             style=thumb_style,
         )
         logger.info("Превью сгенерировано")
 
         # Ссылки на канал/Boosty + хэштеги добавляем в конец описания
-        description = seo.get("description", "")
+        description = _fix_declensions(seo.get("description", ""))
         links_block = (
             f"📌 Telegram-канал: {_TG_CHANNEL_URL}\n"
             f"💛 Видеоуроки и поддержка на Boosty: {_BOOSTY_URL}"
@@ -455,9 +477,9 @@ class YoutubeMaster:
             "topic":          topic,
             "format":         format_,
             "script":         script,
-            "title":          seo.get("title", topic),
+            "title":          title,
             "description":    description,
-            "tags":           seo.get("tags", []),
+            "tags":           tags,
             "hashtags":       hashtags,
             "category_id":    seo.get("category_id", "26"),
             "thumbnail_bytes": thumbnail,

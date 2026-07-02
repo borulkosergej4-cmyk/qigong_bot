@@ -454,6 +454,16 @@ def update_youtube_video_script(video_db_id: int, script: str):
         conn.commit()
 
 
+def update_youtube_video_description(video_db_id: int, description: str):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE youtube_videos SET description=%s WHERE id=%s",
+                (description, video_db_id),
+            )
+        conn.commit()
+
+
 def mark_youtube_published(video_db_id: int, youtube_id: str):
     with get_conn() as conn:
         with conn.cursor() as cur:
