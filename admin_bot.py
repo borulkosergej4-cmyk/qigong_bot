@@ -376,7 +376,7 @@ async def _growth_reminder_loop(bot: Bot) -> None:
                     task_id, section, task_text = task
                     section_name = _GROWTH_SECTION_NAMES.get(section, section)
                     kb = InlineKeyboardMarkup([
-                        [InlineKeyboardButton("✅ Сделано", callback_data=f"gt_toggle_{task_id}")],
+                        [InlineKeyboardButton("✅ Сделано", callback_data=f"gt_toggle_{task_id}_{section}")],
                         [InlineKeyboardButton("📋 Весь план", callback_data="growth_menu")],
                     ])
                     for admin_id in ADMIN_IDS:
@@ -498,19 +498,43 @@ _GROWTH_SECTION_NAMES = {
 
 
 async def _render_growth_menu():
+    """Верхний уровень — только разделы, с прогрессом по каждому. Заходишь внутрь раздела,
+    чтобы увидеть и отметить конкретные задачи."""
     tasks = await asyncio.to_thread(get_growth_tasks)
-    done_n = sum(1 for _, _, _, done in tasks if done)
-    text = f"🚀 План роста «Бадуаньцзин за 21 день»\n\nВыполнено {done_n} из {len(tasks)}. Нажми на задачу, чтобы отметить."
-    btns = []
-    current_section = None
+    by_section: dict[str, list] = {}
     for tid, section, task_text, done in tasks:
-        if section != current_section:
-            current_section = section
-            btns.append([InlineKeyboardButton(_GROWTH_SECTION_NAMES.get(section, section), callback_data="growth_menu")])
-        mark = "✅" if done else "⬜"
-        label = f"{mark} {task_text[:55]}"
-        btns.append([InlineKeyboardButton(label, callback_data=f"gt_toggle_{tid}")])
+        by_section.setdefault(section, []).append((tid, task_text, done))
+    total = len(tasks)
+    done_total = sum(1 for _, _, _, done in tasks if done)
+    text = f"🚀 План роста «Бадуаньцзин за 21 день»\n\nВыполнено {done_total} из {total}. Выбери раздел:"
+    btns = []
+    for section, name in _GROWTH_SECTION_NAMES.items():
+        items = by_section.get(section, [])
+        done_n = sum(1 for _, _, done in items if done)
+        btns.append([InlineKeyboardButton(f"{name} ({done_n}/{len(items)})", callback_data=f"gt_section_{section}")])
     btns.append([InlineKeyboardButton("◀ Назад", callback_data="main_menu")])
+    return text, InlineKeyboardMarkup(btns)
+
+
+async def _render_growth_section(section: str):
+    """Детальный вид одного раздела — задачи с чекбоксами. Для launch дополнительно
+    показывает заголовки недель, извлечённые из текста задачи («Неделя N · ...»)."""
+    tasks = await asyncio.to_thread(get_growth_tasks)
+    items = [(tid, task_text, done) for tid, sec, task_text, done in tasks if sec == section]
+    name = _GROWTH_SECTION_NAMES.get(section, section)
+    done_n = sum(1 for _, _, done in items if done)
+    text = f"{name}\n\nВыполнено {done_n} из {len(items)}. Нажми на задачу, чтобы отметить."
+    btns = []
+    current_week = None
+    for tid, task_text, done in items:
+        week, sep, rest = task_text.partition(" · ")
+        label_text = rest if sep else task_text
+        if sep and week != current_week:
+            current_week = week
+            btns.append([InlineKeyboardButton(f"— {week} —", callback_data=f"gt_section_{section}")])
+        mark = "✅" if done else "⬜"
+        btns.append([InlineKeyboardButton(f"{mark} {label_text[:55]}", callback_data=f"gt_toggle_{tid}_{section}")])
+    btns.append([InlineKeyboardButton("◀ К разделам", callback_data="growth_menu")])
     return text, InlineKeyboardMarkup(btns)
 
 
@@ -860,10 +884,19 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         text, kb = await _render_growth_menu()
         await _safe_edit(q, text, reply_markup=kb)
 
+    elif data.startswith("gt_section_"):
+        section = data.replace("gt_section_", "")
+        text, kb = await _render_growth_section(section)
+        await _safe_edit(q, text, reply_markup=kb)
+
     elif data.startswith("gt_toggle_"):
-        task_id = int(data.replace("gt_toggle_", ""))
-        await asyncio.to_thread(toggle_growth_task, task_id)
-        text, kb = await _render_growth_menu()
+        rest = data.replace("gt_toggle_", "")
+        task_id_str, _, section = rest.partition("_")
+        await asyncio.to_thread(toggle_growth_task, int(task_id_str))
+        if section:
+            text, kb = await _render_growth_section(section)
+        else:
+            text, kb = await _render_growth_menu()
         await _safe_edit(q, text, reply_markup=kb)
 
     elif data.startswith("yt_show_script_"):

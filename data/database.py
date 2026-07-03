@@ -156,10 +156,17 @@ def init_db():
 # ── Стратегия роста ──────────────────────────────────────────────────────────
 
 _GROWTH_TASKS_SEED = [
-    ("launch", "Неделя 1: структурировать видео в 21-дневную прогрессию, снять недостающее, собрать PDF-схему движений"),
-    ("launch", "Неделя 2: сообщить текущим подписчикам Boosty, пост в VK/TG от Сергея лично, сообщение через Конфуция интересовавшимся"),
-    ("launch", "Неделя 3: серия YouTube Shorts-тизеров по упражнениям с CTA на Boosty, пост с первыми отзывами"),
-    ("launch", "Неделя 4: живой Q&A с Сергеем для когорты, бесплатное очное занятие по итогам, решить — повторять когортами или сделать вечный доступ"),
+    ("launch", "Неделя 1 · Структурировать видео в 21-дневную прогрессию"),
+    ("launch", "Неделя 1 · Снять недостающие видео"),
+    ("launch", "Неделя 1 · Собрать PDF-схему движений"),
+    ("launch", "Неделя 2 · Сообщить текущим подписчикам Boosty"),
+    ("launch", "Неделя 2 · Пост в VK/TG от Сергея лично"),
+    ("launch", "Неделя 2 · Сообщение через Конфуция интересовавшимся"),
+    ("launch", "Неделя 3 · Серия YouTube Shorts-тизеров по упражнениям с CTA на Boosty"),
+    ("launch", "Неделя 3 · Пост с первыми отзывами"),
+    ("launch", "Неделя 4 · Живой Q&A с Сергеем для когорты"),
+    ("launch", "Неделя 4 · Бесплатное очное занятие по итогам"),
+    ("launch", "Неделя 4 · Решить — повторять когортами или сделать вечный доступ"),
     ("playbook", "Прямое сообщение текущим подписчикам Boosty"),
     ("playbook", "Догрев тех, кто писал Конфуцию, но не записался"),
     ("playbook", "YouTube Shorts-тизеры с CTA на Boosty"),
@@ -179,16 +186,28 @@ _GROWTH_TASKS_SEED = [
 
 
 def _seed_growth_tasks():
+    """Синхронизирует таблицу со списком выше: убирает задачи, которых больше нет
+    в плане, добавляет новые, обновляет порядок — но не трогает done у совпадающих
+    по тексту задач, чтобы не сбрасывать отмеченный прогресс."""
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM growth_tasks")
-            if cur.fetchone()[0] > 0:
-                return
+            cur.execute("SELECT text FROM growth_tasks")
+            existing_texts = {row[0] for row in cur.fetchall()}
+            seed_texts = {text for _, text in _GROWTH_TASKS_SEED}
+            to_remove = existing_texts - seed_texts
+            if to_remove:
+                cur.execute("DELETE FROM growth_tasks WHERE text = ANY(%s)", (list(to_remove),))
             for i, (section, text) in enumerate(_GROWTH_TASKS_SEED):
-                cur.execute(
-                    "INSERT INTO growth_tasks (section, text, sort_order) VALUES (%s, %s, %s)",
-                    (section, text, i),
-                )
+                if text in existing_texts:
+                    cur.execute(
+                        "UPDATE growth_tasks SET sort_order=%s, section=%s WHERE text=%s",
+                        (i, section, text),
+                    )
+                else:
+                    cur.execute(
+                        "INSERT INTO growth_tasks (section, text, sort_order) VALUES (%s, %s, %s)",
+                        (section, text, i),
+                    )
         conn.commit()
 
 
