@@ -245,6 +245,29 @@ async def _vk_clip(video_path: str) -> tuple[bool, str]:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Скачивание видео по ссылке (обход лимита Telegram Bot API в 20 МБ на файл)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _download_video_from_url(url: str, dest: Path):
+    """Скачивает видео по прямой ссылке или публичной ссылке Яндекс.Диска в dest."""
+    download_url = url
+    if "disk.yandex" in url:
+        async with httpx.AsyncClient(timeout=30) as cl:
+            r = await cl.get(
+                "https://cloud-api.yandex.net/v1/disk/public/resources/download",
+                params={"public_key": url},
+            )
+            r.raise_for_status()
+            download_url = r.json()["href"]
+    async with httpx.AsyncClient(timeout=300, follow_redirects=True) as cl:
+        async with cl.stream("GET", download_url) as resp:
+            resp.raise_for_status()
+            with open(dest, "wb") as f:
+                async for chunk in resp.aiter_bytes(chunk_size=1024 * 1024):
+                    f.write(chunk)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Фото для поста
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -965,6 +988,9 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif data == "yt_upload_prompt":
         await _safe_edit(q,
             "📤 Загрузи видеофайл (.mp4) ответным сообщением.\n\n"
+            "Если файл больше 20 МБ — Telegram не даёт боту его скачать напрямую. "
+            "В этом случае загрузи видео на Яндекс.Диск или Google Диск, открой доступ по ссылке "
+            "и пришли эту ссылку сюда текстом — бот скачает файл сам.\n\n"
             "Бот загрузит его на YouTube с подготовленным заголовком, описанием и превью.",
             reply_markup=_back_keyboard("youtube_menu"),
         )
@@ -2187,10 +2213,17 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     elif state == "yt_awaiting_video_file":
         msg = update.message
         video = msg.video or msg.document
+        video_url = None
         if not video:
-            await msg.reply_text("Отправь видеофайл (.mp4).",
-                                 reply_markup=_back_keyboard("youtube_menu"))
-            return
+            text = (msg.text or "").strip()
+            if text.startswith("http"):
+                video_url = text
+            else:
+                await msg.reply_text(
+                    "Отправь видеофайл (.mp4) или ссылку на Яндекс.Диск/Google Диск, "
+                    "если файл больше 20 МБ.",
+                    reply_markup=_back_keyboard("youtube_menu"))
+                return
         gen = USER_GENERATED.get(uid, {})
         prepared = gen.get("yt_prepared")
         video_db_id = gen.get("yt_db_id")
@@ -2202,9 +2235,12 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         await msg.reply_text("⬇️ Скачиваю видеофайл...")
         try:
-            tg_file = await ctx.bot.get_file(video.file_id)
             tmp_path = Path(tempfile.mkdtemp()) / "yt_upload.mp4"
-            await tg_file.download_to_drive(str(tmp_path))
+            if video_url:
+                await _download_video_from_url(video_url, tmp_path)
+            else:
+                tg_file = await ctx.bot.get_file(video.file_id)
+                await tg_file.download_to_drive(str(tmp_path))
 
             await ctx.bot.send_message(uid, "⏳ Загружаю на YouTube...")
             yt_id = await asyncio.to_thread(
