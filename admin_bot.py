@@ -249,7 +249,12 @@ async def _vk_clip(video_path: str) -> tuple[bool, str]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def _download_video_from_url(url: str, dest: Path):
-    """Скачивает видео по прямой ссылке или публичной ссылке Яндекс.Диска в dest."""
+    """Скачивает видео по прямой ссылке или публичной ссылке Яндекс.Диска в dest.
+
+    Сама загрузка идёт через curl-подпроцесс, а не httpx: у Яндекса стоит
+    анти-бот защита (похоже, по TLS/HTTP-отпечатку клиента) — httpx стабильно
+    получает 403 Forbidden на download-ссылке, хотя та же самая ссылка через
+    curl отдаётся без проблем."""
     download_url = url
     if "disk.yandex" in url:
         async with httpx.AsyncClient(timeout=30) as cl:
@@ -259,12 +264,14 @@ async def _download_video_from_url(url: str, dest: Path):
             )
             r.raise_for_status()
             download_url = r.json()["href"]
-    async with httpx.AsyncClient(timeout=300, follow_redirects=True) as cl:
-        async with cl.stream("GET", download_url) as resp:
-            resp.raise_for_status()
-            with open(dest, "wb") as f:
-                async for chunk in resp.aiter_bytes(chunk_size=1024 * 1024):
-                    f.write(chunk)
+
+    proc = await asyncio.create_subprocess_exec(
+        "curl", "-sSL", "--fail", "--max-time", "280", "-o", str(dest), download_url,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise RuntimeError(f"curl download failed (code {proc.returncode}): {stderr.decode(errors='ignore')[:300]}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
