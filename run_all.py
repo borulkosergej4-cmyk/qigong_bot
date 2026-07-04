@@ -89,7 +89,7 @@ async def run_client_bot():
     )
     app.add_handler(CommandHandler("start", client_bot.cmd_start))
     app.add_handler(CallbackQueryHandler(client_bot.on_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, client_bot.on_message))
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, client_bot.on_message))
 
     logger.info("Client bot: запускаю polling...")
     await app.initialize()
