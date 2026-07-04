@@ -31,15 +31,34 @@ def _fix_declensions(text: str) -> str:
     return _DECLENSION_FIX.sub(lambda m: m.group(1), text) if text else text
 
 
-# ── Номер серии в теме («День 3», «Урок 2», «Упражнение 5») для бейджа на превью ─
-_EPISODE_RE = re.compile(r'(день|урок|упражнение)\D{0,10}?(\d{1,2})\b', re.IGNORECASE)
+# ── Номер серии в теме/заголовке для бейджа на превью. Реальные заголовки
+# используют словесные порядковые числительные («второе упражнение»,
+# «первое упражнение»), а не цифры, поэтому ищем оба варианта — но только
+# впритык к ключевому слову, иначе «5 минут в день» ложно даёт «День 5».
+_EPISODE_KEYWORDS = ("день", "урок", "упражнение")
+_ORDINAL_STEMS = {
+    "перв": 1, "втор": 2, "трет": 3, "четверт": 4, "четвёрт": 4, "пят": 5,
+    "шест": 6, "седьм": 7, "восьм": 8, "девят": 9, "десят": 10,
+}
+_WORD_RE = re.compile(r'[^\W\d_]+|\d+', re.UNICODE)
 
 
-def _extract_episode_label(topic: str) -> str:
-    m = _EPISODE_RE.search(topic or "")
-    if not m:
-        return ""
-    return f"{m.group(1).capitalize()} {m.group(2)}"
+def _extract_episode_label(*texts: str) -> str:
+    for text in texts:
+        if not text:
+            continue
+        tokens = _WORD_RE.findall(text.lower())
+        for i, tok in enumerate(tokens):
+            if tok not in _EPISODE_KEYWORDS:
+                continue
+            neighbors = tokens[max(i - 1, 0):i] + tokens[i + 1:i + 2]
+            for nb in neighbors:
+                if nb.isdigit() and 1 <= int(nb) <= 21:
+                    return f"{tok.capitalize()} {nb}"
+                for stem, num in _ORDINAL_STEMS.items():
+                    if nb.startswith(stem):
+                        return f"{tok.capitalize()} {num}"
+    return ""
 
 # ── Цвета и шрифты для превью ────────────────────────────────────────────────
 _FONTS_DIR = Path(__file__).parent.parent / "fonts"
@@ -500,7 +519,7 @@ class YoutubeMaster:
             title=title,
             subtitle=topic if topic != title else "",
             style=thumb_style,
-            episode_label=_extract_episode_label(topic),
+            episode_label=_extract_episode_label(topic, title),
         )
         logger.info("Превью сгенерировано")
 
