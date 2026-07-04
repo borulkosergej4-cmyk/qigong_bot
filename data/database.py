@@ -308,6 +308,19 @@ def clear_chat_history_db(user_id, source: str):
         logging.getLogger(__name__).error(f"clear_chat_history_db error: {e}")
 
 
+def get_recent_chat_histories(limit: int = 15):
+    """Для админского просмотра диалогов — список последних активных бесед
+    (не полный текст, чтобы список грузился быстро)."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT user_id, source, history, updated_at FROM chat_history "
+                "ORDER BY updated_at DESC LIMIT %s",
+                (limit,),
+            )
+            return cur.fetchall()
+
+
 # ── Посты ─────────────────────────────────────────────────────────────────────
 
 def save_post(platform: str, text: str, photo_bytes: bytes | None = None,

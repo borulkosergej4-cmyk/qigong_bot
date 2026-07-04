@@ -48,6 +48,7 @@ from data.database import (
     update_youtube_video_script, update_youtube_video_description,
     get_growth_tasks, toggle_growth_task, get_next_pending_task,
     get_last_growth_reminder_date, set_last_growth_reminder_date,
+    get_recent_chat_histories, load_chat_history,
 )
 import youtube_api as _yt
 from agents.youtube_agent import youtube_master as _yt_master
@@ -496,6 +497,7 @@ def _main_keyboard():
         [InlineKeyboardButton("🎥 Медиа",              callback_data="media_menu")],
         [InlineKeyboardButton("📋 История постов",     callback_data="posts_history")],
         [InlineKeyboardButton("🚀 План роста",         callback_data="growth_menu")],
+        [InlineKeyboardButton("💬 Диалоги клиентов",   callback_data="dialogs_menu")],
     ])
 
 
@@ -568,6 +570,33 @@ async def _render_growth_section(section: str):
         btns.append([InlineKeyboardButton(f"{mark} {label_text[:55]}", callback_data=f"gt_toggle_{tid}_{section}")])
     btns.append([InlineKeyboardButton("◀ К разделам", callback_data="growth_menu")])
     return text, InlineKeyboardMarkup(btns)
+
+
+async def _render_dialogs_menu(uid: int):
+    """Список последних диалогов Конфуция с клиентами (Telegram + VK), т.к. в
+    отличие от VK у Telegram нет встроенного способа посмотреть переписку бота."""
+    rows = await asyncio.to_thread(get_recent_chat_histories, 15)
+    if not rows:
+        return "Диалогов пока нет.", _back_keyboard()
+    gen = USER_GENERATED.setdefault(uid, {})
+    dlg_list = []
+    btns = []
+    for row_user_id, source, history, updated_at in rows:
+        dlg_list.append((row_user_id, source))
+        idx = len(dlg_list) - 1
+        platform = "TG" if source == "telegram" else "VK"
+        updated_msk = (updated_at + timedelta(hours=3)).strftime("%d.%m %H:%M") if updated_at else "?"
+        last_msg = ""
+        for msg in reversed(history or []):
+            if msg.get("role") == "user":
+                last_msg = msg.get("content", "").strip()[:35]
+                break
+        label = f"[{platform}] {row_user_id} · {updated_msk} · {last_msg}"
+        btns.append([InlineKeyboardButton(label[:64], callback_data=f"dlg_view_{idx}")])
+    gen["dlg_list"] = dlg_list
+    USER_GENERATED[uid] = gen
+    btns.append([InlineKeyboardButton("◀ Назад", callback_data="main_menu")])
+    return "💬 Последние диалоги клиентов с Конфуцием — выбери, чтобы посмотреть переписку:", InlineKeyboardMarkup(btns)
 
 
 async def _safe_edit(q, text: str, reply_markup=None, **kwargs):
@@ -930,6 +959,34 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         else:
             text, kb = await _render_growth_menu()
         await _safe_edit(q, text, reply_markup=kb)
+
+    elif data == "dialogs_menu":
+        text, kb = await _render_dialogs_menu(uid)
+        await _safe_edit(q, text, reply_markup=kb)
+
+    elif data.startswith("dlg_view_"):
+        idx = int(data.replace("dlg_view_", ""))
+        dlg_list = USER_GENERATED.get(uid, {}).get("dlg_list", [])
+        if idx >= len(dlg_list):
+            await _safe_edit(q, "Список устарел — открой «Диалоги клиентов» заново.",
+                             reply_markup=_back_keyboard())
+            return
+        row_user_id, source = dlg_list[idx]
+        history = await asyncio.to_thread(load_chat_history, row_user_id, source)
+        platform = "Telegram" if source == "telegram" else "VK"
+        if not history:
+            await _safe_edit(q, f"Переписка [{platform}] {row_user_id} пуста.",
+                             reply_markup=_back_keyboard("dialogs_menu"))
+            return
+        lines = [f"💬 Диалог [{platform}] ID {row_user_id}:\n"]
+        for msg in history:
+            role = "👤 Клиент" if msg.get("role") == "user" else "🤖 Конфуций"
+            lines.append(f"{role}: {msg.get('content', '')}")
+        full_text = "\n\n".join(lines)
+        chunks = [full_text[i:i + 3800] for i in range(0, len(full_text), 3800)]
+        for i, chunk in enumerate(chunks):
+            kb = _back_keyboard("dialogs_menu") if i == len(chunks) - 1 else None
+            await ctx.bot.send_message(uid, chunk, reply_markup=kb)
 
     elif data.startswith("yt_show_script_"):
         video_db_id = int(data.replace("yt_show_script_", ""))
