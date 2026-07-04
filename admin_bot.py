@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import random
+import re
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -46,7 +47,7 @@ from data.database import (
     save_post_photo, get_post_photos, delete_post_photo,
     save_youtube_video, mark_youtube_published, get_youtube_videos,
     update_youtube_video_script, update_youtube_video_description,
-    update_youtube_video_title, get_youtube_video,
+    update_youtube_video_title, get_youtube_video, get_youtube_video_by_ytid,
     get_growth_tasks, toggle_growth_task, get_next_pending_task,
     get_last_growth_reminder_date, set_last_growth_reminder_date,
     get_recent_chat_histories, load_chat_history,
@@ -510,8 +511,44 @@ def _youtube_keyboard():
         [InlineKeyboardButton("🎬 Подготовить видео",   callback_data="yt_prepare_video")],
         [InlineKeyboardButton("📊 Аналитика канала",    callback_data="yt_analytics")],
         [InlineKeyboardButton("📋 История видео",       callback_data="yt_history")],
+        [InlineKeyboardButton("🔗 Правка видео по ссылке", callback_data="yt_editpub_byurl")],
         [InlineKeyboardButton("◀ Главное меню",         callback_data="main_menu")],
     ])
+
+
+_YT_ID_RE = re.compile(r'(?:youtu\.be/|youtube\.com/(?:watch\?v=|shorts/|embed/))([A-Za-z0-9_-]{11})')
+
+
+def _extract_youtube_id(text: str) -> str | None:
+    """Достаёт video ID из ссылки youtu.be/watch/shorts или принимает голый ID (11 символов)."""
+    text = text.strip()
+    m = _YT_ID_RE.search(text)
+    if m:
+        return m.group(1)
+    if re.fullmatch(r'[A-Za-z0-9_-]{11}', text):
+        return text
+    return None
+
+
+async def _render_editpub_detail(uid: int, yt_id: str, video_db_id: int | None):
+    """Общий рендер экрана правки для видео — не важно, найдено оно через
+    «История видео» (video_db_id известен) или введено по ссылке (video_db_id=None,
+    видео может быть не отслежено ботом вообще, например загружено вручную)."""
+    live = await asyncio.to_thread(_yt.get_video_snippet, yt_id)
+    USER_GENERATED.setdefault(uid, {})["yt_editpub_id"] = video_db_id
+    USER_GENERATED[uid]["yt_editpub_ytid"] = yt_id
+    text = (
+        f"✏️ Правка видео https://youtu.be/{yt_id}\n\n"
+        f"📌 Название сейчас:\n{live.get('title', '')}\n\n"
+        f"📝 Описание сейчас (первые 300 симв.):\n{live.get('description', '')[:300]}..."
+    )
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✏️ Изменить название", callback_data="yt_editpub_title")],
+        [InlineKeyboardButton("✏️ Изменить описание", callback_data="yt_editpub_desc")],
+        [InlineKeyboardButton("◀ Назад", callback_data="youtube_menu")],
+    ])
+    return text, kb
+
 
 def _platform_keyboard(prefix: str = "platform"):
     return InlineKeyboardMarkup([
@@ -902,16 +939,22 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         btns.append([InlineKeyboardButton("◀ Назад", callback_data="youtube_menu")])
         await _safe_edit(q, "\n\n".join(lines), reply_markup=InlineKeyboardMarkup(btns))
 
-    elif data.startswith("yt_editpub_title_"):
-        video_db_id = int(data.replace("yt_editpub_title_", ""))
-        USER_GENERATED.setdefault(uid, {})["yt_editpub_id"] = video_db_id
+    elif data == "yt_editpub_byurl":
+        USER_STATE[uid] = "yt_editpub_awaiting_url"
+        await _safe_edit(
+            q,
+            "Пришли ссылку на видео (youtu.be/..., youtube.com/watch?v=... или /shorts/...) "
+            "или просто ID видео. Работает для ЛЮБОГО видео на канале — даже если оно "
+            "не отслеживается ботом (например, загружено вручную через Studio).",
+            reply_markup=_back_keyboard("youtube_menu"),
+        )
+
+    elif data == "yt_editpub_title":
         USER_STATE[uid] = "yt_editpub_awaiting_title"
         await _safe_edit(q, "Пришли новое название видео (до 100 символов).",
                          reply_markup=_back_keyboard("yt_history"))
 
-    elif data.startswith("yt_editpub_desc_"):
-        video_db_id = int(data.replace("yt_editpub_desc_", ""))
-        USER_GENERATED.setdefault(uid, {})["yt_editpub_id"] = video_db_id
+    elif data == "yt_editpub_desc":
         USER_STATE[uid] = "yt_editpub_awaiting_desc"
         await _safe_edit(q, "Пришли новый текст описания целиком (замени полностью, включая ссылки).",
                          reply_markup=_back_keyboard("yt_history"))
@@ -927,23 +970,11 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await _safe_edit(q, "Видео ещё не опубликовано на YouTube.", reply_markup=_back_keyboard("yt_history"))
             return
         try:
-            live = await asyncio.to_thread(_yt.get_video_snippet, yt_id)
+            text, kb = await _render_editpub_detail(uid, yt_id, video_db_id)
         except Exception as e:
             await _safe_edit(q, f"❌ Не удалось загрузить текущие данные с YouTube: {e}",
                              reply_markup=_back_keyboard("yt_history"))
             return
-        USER_GENERATED.setdefault(uid, {})["yt_editpub_id"] = video_db_id
-        USER_GENERATED[uid]["yt_editpub_ytid"] = yt_id
-        text = (
-            f"✏️ Правка видео https://youtu.be/{yt_id}\n\n"
-            f"📌 Название сейчас:\n{live.get('title', '')}\n\n"
-            f"📝 Описание сейчас (первые 300 симв.):\n{live.get('description', '')[:300]}..."
-        )
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✏️ Изменить название", callback_data=f"yt_editpub_title_{video_db_id}")],
-            [InlineKeyboardButton("✏️ Изменить описание", callback_data=f"yt_editpub_desc_{video_db_id}")],
-            [InlineKeyboardButton("◀ Назад", callback_data="yt_history")],
-        ])
         await _safe_edit(q, text, reply_markup=kb)
 
     elif data.startswith("yt_pub_"):
@@ -1825,7 +1856,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "awaiting_schedule_time", "reel_motivation", "reel_promo", "reel_announcement",
         "reel_custom", "awaiting_post_text_edit", "yt_awaiting_topic",
         "yt_awaiting_script_edit", "yt_awaiting_desc_edit",
-        "yt_editpub_awaiting_title", "yt_editpub_awaiting_desc",
+        "yt_editpub_awaiting_title", "yt_editpub_awaiting_desc", "yt_editpub_awaiting_url",
     }
     if state in _TEXT_ONLY_STATES:
         if not update.message or not update.message.text:
@@ -1923,49 +1954,76 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # ── YouTube: правка названия уже опубликованного видео ────────────────────
     if state == "yt_editpub_awaiting_title":
         new_title = update.message.text.strip()
-        video_db_id = USER_GENERATED.get(uid, {}).get("yt_editpub_id")
+        gen = USER_GENERATED.get(uid, {})
+        yt_id = gen.get("yt_editpub_ytid")
+        video_db_id = gen.get("yt_editpub_id")
         USER_STATE.pop(uid, None)
-        row = video_db_id and await asyncio.to_thread(get_youtube_video, video_db_id)
-        if not row or not row[1]:
-            await update.message.reply_text("❌ Не нашёл видео — открой «История видео» заново.",
-                                            reply_markup=_back_keyboard("yt_history"))
+        if not yt_id:
+            await update.message.reply_text("❌ Не нашёл видео — открой «История видео» или пришли ссылку заново.",
+                                            reply_markup=_youtube_keyboard())
             return
-        yt_id = row[1]
         try:
             await asyncio.to_thread(_yt.update_video, yt_id, title=new_title)
-            await asyncio.to_thread(update_youtube_video_title, video_db_id, new_title)
+            if video_db_id:
+                await asyncio.to_thread(update_youtube_video_title, video_db_id, new_title)
             await update.message.reply_text(
-                f"✅ Название обновлено на YouTube:\n{new_title}",
-                reply_markup=_back_keyboard("yt_history"),
+                f"✅ Название обновлено на YouTube:\nhttps://youtu.be/{yt_id}\n{new_title}",
+                reply_markup=_youtube_keyboard(),
             )
         except Exception as e:
             logger.error(f"update_video (title) error: {e}", exc_info=True)
             await update.message.reply_text(f"❌ Не удалось обновить название: {e}",
-                                            reply_markup=_back_keyboard("yt_history"))
+                                            reply_markup=_youtube_keyboard())
         return
 
     # ── YouTube: правка описания уже опубликованного видео ────────────────────
     if state == "yt_editpub_awaiting_desc":
         new_desc = update.message.text.strip()
-        video_db_id = USER_GENERATED.get(uid, {}).get("yt_editpub_id")
+        gen = USER_GENERATED.get(uid, {})
+        yt_id = gen.get("yt_editpub_ytid")
+        video_db_id = gen.get("yt_editpub_id")
         USER_STATE.pop(uid, None)
-        row = video_db_id and await asyncio.to_thread(get_youtube_video, video_db_id)
-        if not row or not row[1]:
-            await update.message.reply_text("❌ Не нашёл видео — открой «История видео» заново.",
-                                            reply_markup=_back_keyboard("yt_history"))
+        if not yt_id:
+            await update.message.reply_text("❌ Не нашёл видео — открой «История видео» или пришли ссылку заново.",
+                                            reply_markup=_youtube_keyboard())
             return
-        yt_id = row[1]
         try:
             await asyncio.to_thread(_yt.update_video, yt_id, description=new_desc)
-            await asyncio.to_thread(update_youtube_video_description, video_db_id, new_desc)
+            if video_db_id:
+                await asyncio.to_thread(update_youtube_video_description, video_db_id, new_desc)
             await update.message.reply_text(
-                "✅ Описание обновлено на YouTube.",
-                reply_markup=_back_keyboard("yt_history"),
+                f"✅ Описание обновлено на YouTube:\nhttps://youtu.be/{yt_id}",
+                reply_markup=_youtube_keyboard(),
             )
         except Exception as e:
             logger.error(f"update_video (description) error: {e}", exc_info=True)
             await update.message.reply_text(f"❌ Не удалось обновить описание: {e}",
-                                            reply_markup=_back_keyboard("yt_history"))
+                                            reply_markup=_youtube_keyboard())
+        return
+
+    # ── YouTube: правка по ссылке (видео может быть не в БД вообще) ────────────
+    if state == "yt_editpub_awaiting_url":
+        USER_STATE.pop(uid, None)
+        yt_id = _extract_youtube_id(update.message.text)
+        if not yt_id:
+            await update.message.reply_text(
+                "Не смог распознать ссылку/ID видео. Пришли вид youtu.be/XXXXXXXXXXX, "
+                "youtube.com/watch?v=XXXXXXXXXXX, /shorts/XXXXXXXXXXX или голый 11-символьный ID.",
+                reply_markup=_youtube_keyboard(),
+            )
+            return
+        row = await asyncio.to_thread(get_youtube_video_by_ytid, yt_id)
+        video_db_id = row[0] if row else None
+        try:
+            text, kb = await _render_editpub_detail(uid, yt_id, video_db_id)
+        except Exception as e:
+            logger.error(f"get_video_snippet error: {e}", exc_info=True)
+            await update.message.reply_text(f"❌ Не удалось загрузить видео с YouTube: {e}",
+                                            reply_markup=_youtube_keyboard())
+            return
+        if video_db_id is None:
+            text += "\n\n(это видео не отслеживается ботом — правка уйдёт напрямую на YouTube, без записи в БД)"
+        await update.message.reply_text(text, reply_markup=kb)
         return
 
     # ── Тема поста ────────────────────────────────────────────────────────────

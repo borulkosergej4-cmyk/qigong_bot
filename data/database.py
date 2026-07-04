@@ -689,6 +689,19 @@ def get_youtube_videos(limit: int = 30):
             return cur.fetchall()
 
 
+def get_youtube_video_by_ytid(youtube_id: str):
+    """Найти запись по youtube_id — для правки видео по ссылке, когда неизвестен
+    внутренний id (например, если запись пришла не из «Истории видео»)."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, youtube_id, title, description, tags, format, script, "
+                "thumbnail, status FROM youtube_videos WHERE youtube_id=%s",
+                (youtube_id,),
+            )
+            return cur.fetchone()
+
+
 def get_youtube_video(video_db_id: int):
     with get_conn() as conn:
         with conn.cursor() as cur:
