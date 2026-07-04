@@ -248,30 +248,32 @@ async def _vk_clip(video_path: str) -> tuple[bool, str]:
 # Скачивание видео по ссылке (обход лимита Telegram Bot API в 20 МБ на файл)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-async def _download_video_from_url(url: str, dest: Path):
+def _download_video_from_url_sync(url: str, dest: Path):
     """Скачивает видео по прямой ссылке или публичной ссылке Яндекс.Диска в dest.
 
-    Сама загрузка идёт через curl-подпроцесс, а не httpx: у Яндекса стоит
-    анти-бот защита (похоже, по TLS/HTTP-отпечатку клиента) — httpx стабильно
-    получает 403 Forbidden на download-ссылке, хотя та же самая ссылка через
-    curl отдаётся без проблем."""
+    Сама загрузка идёт через requests, а не httpx: у Яндекса стоит анти-бот
+    защита (похоже, по TLS/HTTP-отпечатку клиента) — httpx стабильно получает
+    403 Forbidden на download-ссылке, хотя та же самая ссылка через requests
+    (и через curl) отдаётся без проблем."""
+    import requests
     download_url = url
     if "disk.yandex" in url:
-        async with httpx.AsyncClient(timeout=30) as cl:
-            r = await cl.get(
-                "https://cloud-api.yandex.net/v1/disk/public/resources/download",
-                params={"public_key": url},
-            )
-            r.raise_for_status()
-            download_url = r.json()["href"]
+        r = requests.get(
+            "https://cloud-api.yandex.net/v1/disk/public/resources/download",
+            params={"public_key": url}, timeout=30,
+        )
+        r.raise_for_status()
+        download_url = r.json()["href"]
 
-    proc = await asyncio.create_subprocess_exec(
-        "curl", "-sSL", "--fail", "--max-time", "280", "-o", str(dest), download_url,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-    )
-    _, stderr = await proc.communicate()
-    if proc.returncode != 0:
-        raise RuntimeError(f"curl download failed (code {proc.returncode}): {stderr.decode(errors='ignore')[:300]}")
+    with requests.get(download_url, stream=True, timeout=280) as resp:
+        resp.raise_for_status()
+        with open(dest, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                f.write(chunk)
+
+
+async def _download_video_from_url(url: str, dest: Path):
+    await asyncio.to_thread(_download_video_from_url_sync, url, dest)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
