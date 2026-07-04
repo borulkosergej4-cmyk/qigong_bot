@@ -2003,15 +2003,16 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # ── YouTube: правка по ссылке (видео может быть не в БД вообще) ────────────
     if state == "yt_editpub_awaiting_url":
-        USER_STATE.pop(uid, None)
         yt_id = _extract_youtube_id(update.message.text)
         if not yt_id:
+            # Состояние НЕ сбрасываем — бот остаётся в ожидании ссылки, чтобы
+            # следующее (уже правильное) сообщение не пролетело мимо молча.
             await update.message.reply_text(
                 "Не смог распознать ссылку/ID видео. Пришли вид youtu.be/XXXXXXXXXXX, "
                 "youtube.com/watch?v=XXXXXXXXXXX, /shorts/XXXXXXXXXXX или голый 11-символьный ID.",
-                reply_markup=_youtube_keyboard(),
             )
             return
+        USER_STATE.pop(uid, None)
         row = await asyncio.to_thread(get_youtube_video_by_ytid, yt_id)
         video_db_id = row[0] if row else None
         try:
