@@ -882,7 +882,13 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
             return
         if _yt.is_authorized():
-            await _safe_edit(q, "✅ YouTube уже авторизован.", reply_markup=_youtube_keyboard())
+            await _safe_edit(
+                q, "✅ YouTube уже авторизован.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔁 Обновить права доступа", callback_data="yt_reauth")],
+                    [InlineKeyboardButton("◀ Назад", callback_data="youtube_menu")],
+                ]),
+            )
             return
         url = _yt.get_auth_url()
         await _safe_edit(q,
@@ -891,6 +897,20 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"2. Войди в Google-аккаунт канала «Дыхание движения»\n"
             f"3. После авторизации будешь перенаправлен на дашборд\n\n"
             f"Авторизация автоматически сохранится.",
+            reply_markup=_back_keyboard("youtube_menu"),
+        )
+
+    elif data == "yt_reauth":
+        # Пере-авторизация нужна после добавления нового scope (например,
+        # youtube.force-ssl для правки уже опубликованных видео) — старый
+        # refresh_token не даёт новых прав задним числом.
+        url = _yt.get_auth_url()
+        await _safe_edit(q,
+            f"Повторная авторизация (обновит права доступа):\n\n"
+            f"1. Перейди по ссылке:\n{url}\n\n"
+            f"2. Войди в тот же Google-аккаунт канала «Дыхание движения»\n"
+            f"3. Подтверди новый набор разрешений\n\n"
+            f"Старая авторизация будет заменена новой.",
             reply_markup=_back_keyboard("youtube_menu"),
         )
 

@@ -29,6 +29,9 @@ _SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube.readonly",
     "https://www.googleapis.com/auth/yt-analytics.readonly",
+    # youtube.upload покрывает insert/delete/thumbnails.set, но НЕ videos.update —
+    # для правки названия/описания уже опубликованного видео нужен этот scope.
+    "https://www.googleapis.com/auth/youtube.force-ssl",
 ]
 
 _TOKEN_DB_KEY = "youtube_oauth"
