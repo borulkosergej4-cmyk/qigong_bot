@@ -30,6 +30,17 @@ _DECLENSION_FIX = re.compile(r'\b(цигун|Бадуаньцзин|ушу|Та�
 def _fix_declensions(text: str) -> str:
     return _DECLENSION_FIX.sub(lambda m: m.group(1), text) if text else text
 
+
+# ── Номер серии в теме («День 3», «Урок 2», «Упражнение 5») для бейджа на превью ─
+_EPISODE_RE = re.compile(r'(день|урок|упражнение)\D{0,10}?(\d{1,2})\b', re.IGNORECASE)
+
+
+def _extract_episode_label(topic: str) -> str:
+    m = _EPISODE_RE.search(topic or "")
+    if not m:
+        return ""
+    return f"{m.group(1).capitalize()} {m.group(2)}"
+
 # ── Цвета и шрифты для превью ────────────────────────────────────────────────
 _FONTS_DIR = Path(__file__).parent.parent / "fonts"
 _THUMB_W   = 1280
@@ -65,7 +76,14 @@ class ScriptAgent:
         1. КРЮЧОК (первые 3–5 сек) — неожиданный факт или вопрос
         2. ОБЕЩАНИЕ — что зритель получит за N минут
         3. ОСНОВНАЯ ЧАСТЬ — шаги/приёмы/объяснения
-        4. ПРИЗЫВ К ДЕЙСТВИЮ — подписка, следующее видео, занятие
+        4. ПРИЗЫВ К ДЕЙСТВИЮ — обязательная финальная реплика (последние 3–5 сек),
+           которую Сергей произносит на камеру. Она должна называть конкретный
+           продукт — программу «Бадуаньцзин за 21 день» на Boosty — а не общее
+           «подписывайся». Пример тона: «Это упражнение — часть полной программы
+           „Бадуаньцзин за 21 день“, она у меня на Boosty, ссылка в описании».
+           Ссылка в описании видео сама по себе не работает как воронка — её
+           почти никто не читает, особенно в Shorts, поэтому CTA обязан
+           прозвучать голосом внутри самого ролика.
 
         Стиль: прямой, живой, без канцелярита. Не «Цигун помогает», а
         «Три минуты этого упражнения снижают давление — я покажу как».
@@ -218,11 +236,14 @@ class SeoAgent:
 class ThumbnailAgent:
     """Генерирует thumbnail 1280×720 для YouTube через Pillow."""
 
-    def generate(self, title: str, subtitle: str = "", style: str = "dark") -> bytes:
+    def generate(self, title: str, subtitle: str = "", style: str = "dark", episode_label: str = "") -> bytes:
         """
-        title:    главный текст (крупно)
-        subtitle: подзаголовок (мелко)
-        style:    'dark' | 'violet' | 'minimal'
+        title:         главный текст (крупно)
+        subtitle:      подзаголовок (мелко)
+        style:         'dark' | 'violet' | 'minimal'
+        episode_label: если задан («День 3», «Урок 2») — рисуется как бейдж
+                        в левом верхнем углу, чтобы серийные видео визуально
+                        читались как прогрессия, а не разрозненные ролики
         Возвращает JPEG bytes.
         """
         from PIL import Image, ImageDraw
@@ -241,6 +262,10 @@ class ThumbnailAgent:
 
         # Иероглиф «氣» как фоновый элемент
         self._draw_bg_glyph(draw)
+
+        # Бейдж серии («День N» / «Урок N») — левый верхний угол
+        if episode_label:
+            self._draw_episode_badge(draw, episode_label)
 
         # Логотип канала (если есть)
         self._try_paste_logo(img)
@@ -337,6 +362,19 @@ class ThumbnailAgent:
             draw.text((820, 100), "氣", font=font, fill=(255, 255, 255, 18))
         except Exception:
             pass
+
+    def _draw_episode_badge(self, draw, label: str):
+        """Скруглённый бейдж с номером серии в левом верхнем углу превью."""
+        font = self._load_font(38)
+        bbox = draw.textbbox((0, 0), label, font=font)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+        pad_x, pad_y = 24, 14
+        x0, y0 = 30, 30
+        x1 = x0 + text_w + pad_x * 2
+        y1 = y0 + text_h + pad_y * 2
+        draw.rounded_rectangle([x0, y0, x1, y1], radius=14, fill=_PALETTE["bg_accent"])
+        draw.text((x0 + pad_x, y0 + pad_y - bbox[1]), label, font=font, fill=_PALETTE["text_white"])
 
     @staticmethod
     def _try_paste_logo(img):
@@ -462,6 +500,7 @@ class YoutubeMaster:
             title=title,
             subtitle=topic if topic != title else "",
             style=thumb_style,
+            episode_label=_extract_episode_label(topic),
         )
         logger.info("Превью сгенерировано")
 
