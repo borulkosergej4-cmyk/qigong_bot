@@ -512,8 +512,31 @@ def _youtube_keyboard():
         [InlineKeyboardButton("📊 Аналитика канала",    callback_data="yt_analytics")],
         [InlineKeyboardButton("📋 История видео",       callback_data="yt_history")],
         [InlineKeyboardButton("🔗 Правка видео по ссылке", callback_data="yt_editpub_byurl")],
+        [InlineKeyboardButton("📃 Собрать плейлист «Бадуаньцзин»", callback_data="yt_playlist_backfill")],
         [InlineKeyboardButton("◀ Главное меню",         callback_data="main_menu")],
     ])
+
+
+_BADUANJIN_PLAYLIST_TITLE = "Бадуаньцзин за 21 день"
+_BADUANJIN_PLAYLIST_DESC = (
+    "21-дневная бесплатная программа Бадуаньцзин — 8 упражнений с прогрессией по дням.\n\n"
+    "📌 Telegram-канал: https://t.me/baguazhangspb\n"
+    "💛 Бесплатно на Boosty: https://boosty.to/s.borulko"
+)
+# Видео из первого забэкфилла плейлиста, в смысловом порядке: тизер-обзор →
+# упражнение 1 → упражнение 2 → бонусная техника. Новые видео серии добавляются
+# по одному через кнопку «➕ В плейлист «Бадуаньцзин»» на карточке видео.
+_BADUANJIN_BACKFILL_IDS = ["9YCSSXnZaRA", "pVAik2Riqv8", "ens-J5aJeAo", "UHyi6M7HQuI"]
+
+
+async def _get_or_create_baduanjin_playlist() -> str:
+    playlists = await asyncio.to_thread(_yt.list_playlists)
+    for pl in playlists:
+        if pl["title"] == _BADUANJIN_PLAYLIST_TITLE:
+            return pl["id"]
+    return await asyncio.to_thread(
+        _yt.create_playlist, _BADUANJIN_PLAYLIST_TITLE, _BADUANJIN_PLAYLIST_DESC, "public"
+    )
 
 
 _YT_ID_RE = re.compile(r'(?:youtu\.be/|youtube\.com/(?:watch\?v=|shorts/|embed/))([A-Za-z0-9_-]{11})')
@@ -545,6 +568,7 @@ async def _render_editpub_detail(uid: int, yt_id: str, video_db_id: int | None):
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("✏️ Изменить название", callback_data="yt_editpub_title")],
         [InlineKeyboardButton("✏️ Изменить описание", callback_data="yt_editpub_desc")],
+        [InlineKeyboardButton("➕ В плейлист «Бадуаньцзин»", callback_data="yt_addplaylist")],
         [InlineKeyboardButton("◀ Назад", callback_data="youtube_menu")],
     ])
     return text, kb
@@ -978,6 +1002,59 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         USER_STATE[uid] = "yt_editpub_awaiting_desc"
         await _safe_edit(q, "Пришли новый текст описания целиком (замени полностью, включая ссылки).",
                          reply_markup=_back_keyboard("yt_history"))
+
+    elif data == "yt_addplaylist":
+        yt_id = USER_GENERATED.get(uid, {}).get("yt_editpub_ytid")
+        if not yt_id:
+            await _safe_edit(q, "❌ Не нашёл видео — открой карточку заново.",
+                             reply_markup=_back_keyboard("yt_history"))
+            return
+        await _safe_edit(q, "⏳ Добавляю в плейлист...", reply_markup=None)
+        try:
+            playlist_id = await _get_or_create_baduanjin_playlist()
+            existing = await asyncio.to_thread(_yt.get_playlist_item_video_ids, playlist_id)
+            if yt_id in existing:
+                await ctx.bot.send_message(uid, "Видео уже есть в плейлисте «Бадуаньцзин за 21 день».",
+                                           reply_markup=_youtube_keyboard())
+            else:
+                await asyncio.to_thread(_yt.add_playlist_item, playlist_id, yt_id)
+                await ctx.bot.send_message(
+                    uid, f"✅ Добавлено в плейлист «Бадуаньцзин за 21 день»:\nhttps://youtu.be/{yt_id}",
+                    reply_markup=_youtube_keyboard(),
+                )
+        except Exception as e:
+            logger.error(f"add_playlist_item error: {e}", exc_info=True)
+            await ctx.bot.send_message(uid, f"❌ Не удалось добавить в плейлист: {e}",
+                                       reply_markup=_youtube_keyboard())
+
+    elif data == "yt_playlist_backfill":
+        await _safe_edit(q, "⏳ Собираю плейлист «Бадуаньцзин за 21 день»...", reply_markup=None)
+        try:
+            playlist_id = await _get_or_create_baduanjin_playlist()
+            existing = await asyncio.to_thread(_yt.get_playlist_item_video_ids, playlist_id)
+            added, skipped, failed = [], [], []
+            for vid in _BADUANJIN_BACKFILL_IDS:
+                if vid in existing:
+                    skipped.append(vid)
+                    continue
+                try:
+                    await asyncio.to_thread(_yt.add_playlist_item, playlist_id, vid)
+                    added.append(vid)
+                except Exception as e:
+                    logger.error(f"backfill add {vid} error: {e}", exc_info=True)
+                    failed.append(vid)
+            lines = [f"📃 Плейлист «Бадуаньцзин за 21 день»: https://www.youtube.com/playlist?list={playlist_id}"]
+            if added:
+                lines.append(f"✅ Добавлено: {len(added)} — {', '.join(added)}")
+            if skipped:
+                lines.append(f"⏭ Уже было: {len(skipped)} — {', '.join(skipped)}")
+            if failed:
+                lines.append(f"❌ Не удалось: {len(failed)} — {', '.join(failed)}")
+            await ctx.bot.send_message(uid, "\n".join(lines), reply_markup=_youtube_keyboard())
+        except Exception as e:
+            logger.error(f"playlist_backfill error: {e}", exc_info=True)
+            await ctx.bot.send_message(uid, f"❌ Не удалось собрать плейлист: {e}",
+                                       reply_markup=_youtube_keyboard())
 
     elif data.startswith("yt_editpub_"):
         video_db_id = int(data.replace("yt_editpub_", ""))

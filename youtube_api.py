@@ -302,6 +302,75 @@ def get_recent_videos(max_results: int = 10) -> list[dict]:
     ]
 
 
+def list_playlists() -> list[dict]:
+    """Плейлисты канала — для поиска уже существующего по названию перед созданием нового."""
+    with httpx.Client(timeout=15) as cl:
+        resp = cl.get(
+            f"{_API_BASE}/playlists",
+            params={"part": "snippet", "mine": "true", "maxResults": 50},
+            headers=_headers(),
+        )
+    resp.raise_for_status()
+    items = resp.json().get("items", [])
+    return [{"id": it["id"], "title": it["snippet"]["title"]} for it in items]
+
+
+def create_playlist(title: str, description: str = "", privacy: str = "public") -> str:
+    """Создаёт плейлист, возвращает его ID."""
+    with httpx.Client(timeout=15) as cl:
+        resp = cl.post(
+            f"{_API_BASE}/playlists?part=snippet,status",
+            headers={
+                "Authorization": f"Bearer {_get_access_token()}",
+                "Content-Type":  "application/json; charset=UTF-8",
+            },
+            content=json.dumps({
+                "snippet": {"title": title, "description": description},
+                "status": {"privacyStatus": privacy},
+            }).encode(),
+        )
+    resp.raise_for_status()
+    return resp.json()["id"]
+
+
+def get_playlist_item_video_ids(playlist_id: str) -> set[str]:
+    """video ID, которые уже есть в плейлисте — чтобы не добавлять дубликаты."""
+    ids = set()
+    page_token = None
+    with httpx.Client(timeout=15) as cl:
+        while True:
+            params = {"part": "contentDetails", "playlistId": playlist_id, "maxResults": 50}
+            if page_token:
+                params["pageToken"] = page_token
+            resp = cl.get(f"{_API_BASE}/playlistItems", params=params, headers=_headers())
+            resp.raise_for_status()
+            data = resp.json()
+            ids.update(it["contentDetails"]["videoId"] for it in data.get("items", []))
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
+    return ids
+
+
+def add_playlist_item(playlist_id: str, video_id: str):
+    """Добавляет видео в конец плейлиста."""
+    with httpx.Client(timeout=15) as cl:
+        resp = cl.post(
+            f"{_API_BASE}/playlistItems?part=snippet",
+            headers={
+                "Authorization": f"Bearer {_get_access_token()}",
+                "Content-Type":  "application/json; charset=UTF-8",
+            },
+            content=json.dumps({
+                "snippet": {
+                    "playlistId": playlist_id,
+                    "resourceId": {"kind": "youtube#video", "videoId": video_id},
+                },
+            }).encode(),
+        )
+    resp.raise_for_status()
+
+
 def get_video_snippet(video_id: str) -> dict:
     """Текущий snippet видео (title, description, tags, categoryId и т.п.) —
     источник истины перед update_video, чтобы не затереть поля, которые не меняем."""
