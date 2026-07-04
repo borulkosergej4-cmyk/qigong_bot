@@ -299,6 +299,56 @@ def get_recent_videos(max_results: int = 10) -> list[dict]:
     ]
 
 
+def get_video_snippet(video_id: str) -> dict:
+    """Текущий snippet видео (title, description, tags, categoryId и т.п.) —
+    источник истины перед update_video, чтобы не затереть поля, которые не меняем."""
+    with httpx.Client(timeout=15) as cl:
+        resp = cl.get(
+            f"{_API_BASE}/videos",
+            params={"part": "snippet", "id": video_id},
+            headers=_headers(),
+        )
+    resp.raise_for_status()
+    items = resp.json().get("items", [])
+    if not items:
+        raise RuntimeError(f"Видео {video_id} не найдено на канале")
+    return items[0]["snippet"]
+
+
+def update_video(
+    video_id: str,
+    title: str | None = None,
+    description: str | None = None,
+    tags: list[str] | None = None,
+) -> None:
+    """
+    Обновляет метаданные уже опубликованного видео (videos.update).
+    YouTube требует передавать snippet целиком, поэтому подгружаем текущий
+    и подменяем только переданные поля — остальное (categoryId и т.п.)
+    остаётся как было.
+    """
+    snippet = get_video_snippet(video_id)
+    if title is not None:
+        snippet["title"] = title[:100]
+    if description is not None:
+        snippet["description"] = description[:5000]
+    if tags is not None:
+        snippet["tags"] = tags[:500]
+
+    access_token = _get_access_token()
+    with httpx.Client(timeout=30) as cl:
+        resp = cl.put(
+            f"{_API_BASE}/videos?part=snippet",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type":  "application/json; charset=UTF-8",
+            },
+            content=json.dumps({"id": video_id, "snippet": snippet}).encode(),
+        )
+    resp.raise_for_status()
+    logger.info(f"Видео {video_id} обновлено на YouTube")
+
+
 def set_thumbnail(video_id: str, image_bytes: bytes):
     """Устанавливает кастомную превью-картинку для видео."""
     access_token = _get_access_token()

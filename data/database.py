@@ -646,6 +646,16 @@ def update_youtube_video_script(video_db_id: int, script: str):
         conn.commit()
 
 
+def update_youtube_video_title(video_db_id: int, title: str):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE youtube_videos SET title=%s WHERE id=%s",
+                (title, video_db_id),
+            )
+        conn.commit()
+
+
 def update_youtube_video_description(video_db_id: int, description: str):
     with get_conn() as conn:
         with conn.cursor() as cur:
