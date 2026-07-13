@@ -311,9 +311,6 @@ class ThumbnailAgent:
         draw.rectangle([0, _THUMB_H - 8, _THUMB_W, _THUMB_H], fill=_PALETTE["bg_accent"])
         draw.rectangle([0, 0, 8, _THUMB_H], fill=_PALETTE["bg_accent"])
 
-        # Иероглиф «氣» как фоновый элемент
-        self._draw_bg_glyph(draw)
-
         # Бейдж серии («День N» / «Урок N») — левый верхний угол
         if episode_label:
             self._draw_episode_badge(draw, episode_label)
@@ -400,19 +397,6 @@ class ThumbnailAgent:
             b = int(color1[2] * (1 - t) + color2[2] * t)
             for x in range(w):
                 img.putpixel((x, y), (r, g, b))
-
-    @staticmethod
-    def _draw_bg_glyph(draw):
-        """Рисует полупрозрачный иероглиф 氣 как фоновый элемент."""
-        try:
-            from PIL import ImageFont
-            font_path = _FONTS_DIR / "NotoSansCJK-Regular.ttc"
-            if not font_path.exists():
-                return
-            font = ImageFont.truetype(str(font_path), 480)
-            draw.text((820, 100), "氣", font=font, fill=(255, 255, 255, 18))
-        except Exception:
-            pass
 
     def _draw_episode_badge(self, draw, label: str):
         """Скруглённый бейдж с номером серии в левом верхнем углу превью."""

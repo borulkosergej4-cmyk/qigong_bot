@@ -258,6 +258,25 @@ def set_last_growth_reminder_date(date_str: str):
         conn.commit()
 
 
+def get_last_yt_digest_date() -> str | None:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT data FROM bot_config WHERE key='yt_digest_date'")
+            row = cur.fetchone()
+    return bytes(row[0]).decode() if row and row[0] else None
+
+
+def set_last_yt_digest_date(date_str: str):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO bot_config (key, data, updated_at) VALUES ('yt_digest_date', %s, NOW()) "
+                "ON CONFLICT (key) DO UPDATE SET data=EXCLUDED.data, updated_at=NOW()",
+                (date_str.encode(),),
+            )
+        conn.commit()
+
+
 # ── История диалога Конфуция ─────────────────────────────────────────────────
 
 def save_chat_history(user_id, source: str, history: list):

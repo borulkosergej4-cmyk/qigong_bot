@@ -50,6 +50,7 @@ from data.database import (
     update_youtube_video_title, get_youtube_video, get_youtube_video_by_ytid,
     get_growth_tasks, toggle_growth_task, get_next_pending_task,
     get_last_growth_reminder_date, set_last_growth_reminder_date,
+    get_last_yt_digest_date, set_last_yt_digest_date,
     get_recent_chat_histories, load_chat_history,
 )
 import youtube_api as _yt
@@ -433,6 +434,41 @@ async def _growth_reminder_loop(bot: Bot) -> None:
             await asyncio.sleep(1800)
         except asyncio.CancelledError:
             logger.info("_growth_reminder_loop: sleep прерван, завершение")
+            return
+
+
+async def _yt_digest_loop(bot: Bot) -> None:
+    """По понедельникам после 10:00 по Москве присылает отчёт аналитики YouTube-канала
+    (тот же паттерн день-однократной отправки, что _growth_reminder_loop — иначе без
+    напоминания об этом легко забыть, что кнопка «📊 Аналитика канала» вообще есть)."""
+    await asyncio.sleep(25)
+    logger.info("_yt_digest_loop: запущен")
+    while True:
+        try:
+            msk_now = datetime.utcnow() + timedelta(hours=3)
+            today_str = msk_now.strftime("%Y-%m-%d")
+            if msk_now.weekday() == 0 and msk_now.hour >= 10:
+                last_date = await asyncio.to_thread(get_last_yt_digest_date)
+                if last_date != today_str:
+                    if _yt.is_authorized():
+                        report = await asyncio.to_thread(_yt_master.get_analytics_report)
+                        for admin_id in ADMIN_IDS:
+                            try:
+                                await bot.send_message(
+                                    admin_id, f"📊 Еженедельная аналитика YouTube\n\n{report}"
+                                )
+                            except Exception as e:
+                                logger.warning(f"Не удалось отправить YouTube-дайджест {admin_id}: {e}")
+                    await asyncio.to_thread(set_last_yt_digest_date, today_str)
+        except asyncio.CancelledError:
+            logger.info("_yt_digest_loop: завершение (CancelledError)")
+            return
+        except Exception as e:
+            logger.error(f"_yt_digest_loop error: {e}", exc_info=True)
+        try:
+            await asyncio.sleep(1800)
+        except asyncio.CancelledError:
+            logger.info("_yt_digest_loop: sleep прерван, завершение")
             return
 
 
@@ -2818,6 +2854,7 @@ async def post_init(app: Application):
     asyncio.create_task(_restore_media())
     asyncio.create_task(_scheduled_post_loop(app.bot))
     asyncio.create_task(_growth_reminder_loop(app.bot))
+    asyncio.create_task(_yt_digest_loop(app.bot))
     logger.info("admin_bot запущен v4")
 
 
