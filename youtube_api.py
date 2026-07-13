@@ -104,7 +104,12 @@ def exchange_code(code: str) -> dict:
             "redirect_uri":  REDIRECT_URI,
             "grant_type":    "authorization_code",
         })
-    resp.raise_for_status()
+    if resp.status_code >= 400:
+        try:
+            detail = resp.json()
+        except Exception:
+            detail = resp.text
+        raise RuntimeError(f"Не удалось обменять код авторизации на токен ({resp.status_code}): {detail}")
     tokens = resp.json()
     _save_tokens(tokens)
     return tokens
@@ -128,7 +133,20 @@ def _get_access_token() -> str:
             "client_secret": CLIENT_SECRET,
             "grant_type":    "refresh_token",
         })
-    resp.raise_for_status()
+    if resp.status_code >= 400:
+        # raise_for_status() отбрасывает тело ответа — а именно в нём Google присылает
+        # {"error": "invalid_grant"/"invalid_client"/..., "error_description": "..."},
+        # без чего 400 не отличить от "токен отозван" от "не совпадают CLIENT_ID/SECRET".
+        try:
+            detail = resp.json()
+        except Exception:
+            detail = resp.text
+        raise RuntimeError(
+            f"Не удалось обновить YouTube-токен ({resp.status_code}): {detail}. "
+            f"Если error='invalid_grant' — доступ отозван или истёк, нужна повторная "
+            f"авторизация через /youtube_auth. Если error='invalid_client' — не совпадают "
+            f"YOUTUBE_CLIENT_ID/SECRET в Railway с теми, на которые был выдан токен."
+        )
     new_tokens = resp.json()
     tokens["access_token"] = new_tokens["access_token"]
     tokens["expires_at"]   = datetime.now(timezone.utc).timestamp() + new_tokens.get("expires_in", 3600)
