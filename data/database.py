@@ -685,6 +685,35 @@ def update_youtube_video_description(video_db_id: int, description: str):
         conn.commit()
 
 
+def claim_youtube_video_for_upload(video_db_id: int) -> bool:
+    """Атомарно переводит видео из 'pending' в 'uploading' — только если оно ещё 'pending'.
+    Возвращает True, если ИМЕННО ЭТОТ вызов забрал право на загрузку, False — если видео уже
+    захвачено другим процессом (или уже опубликовано).
+
+    Нужно, потому что USER_STATE/USER_GENERATED — это память процесса, а не общая для всех
+    инстансов бота: если во время редеплоя Railway на секунды-две одновременно живы старый и
+    новый контейнер, оба поллят Telegram и могут получить одно и то же сообщение с видео —
+    без проверки в БД оба запустили бы загрузку и видео опубликовалось бы на YouTube дважды."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE youtube_videos SET status='uploading' WHERE id=%s AND status='pending' RETURNING id",
+                (video_db_id,),
+            )
+            claimed = cur.fetchone() is not None
+        conn.commit()
+    return claimed
+
+
+def reset_youtube_video_status(video_db_id: int, status: str = "pending"):
+    """Откатывает статус назад (например, после неудачной загрузки — чтобы можно было
+    попробовать снова, а не застрять навсегда в 'uploading')."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE youtube_videos SET status=%s WHERE id=%s", (status, video_db_id))
+        conn.commit()
+
+
 def mark_youtube_published(video_db_id: int, youtube_id: str):
     with get_conn() as conn:
         with conn.cursor() as cur:

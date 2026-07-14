@@ -46,6 +46,7 @@ from data.database import (
     save_bg_audio, delete_bg_audio, save_logo, get_logo,
     save_post_photo, get_post_photos, delete_post_photo,
     save_youtube_video, mark_youtube_published, get_youtube_videos,
+    claim_youtube_video_for_upload, reset_youtube_video_status,
     update_youtube_video_script, update_youtube_video_description,
     update_youtube_video_title, get_youtube_video, get_youtube_video_by_ytid,
     get_growth_tasks, toggle_growth_task, get_next_pending_task,
@@ -2589,6 +2590,20 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             USER_STATE.pop(uid, None)
             return
 
+        # Захватываем право на загрузку в БД (общей для всех процессов), а не только сбрасываем
+        # состояние в памяти — если во время редеплоя на секунды-две живы два контейнера, оба
+        # могут получить одно и то же сообщение с видео; без этой проверки оба загрузили бы
+        # видео на YouTube отдельно, и получились бы дубли.
+        USER_STATE.pop(uid, None)
+        if video_db_id:
+            claimed = await asyncio.to_thread(claim_youtube_video_for_upload, video_db_id)
+            if not claimed:
+                await msg.reply_text(
+                    "Это видео уже загружается или уже опубликовано — второй раз не гружу.",
+                    reply_markup=_youtube_keyboard(),
+                )
+                return
+
         await msg.reply_text("⬇️ Скачиваю видеофайл...")
         try:
             tmp_path = Path(tempfile.mkdtemp()) / "yt_upload.mp4"
@@ -2610,7 +2625,6 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-            USER_STATE.pop(uid, None)
             await ctx.bot.send_message(
                 uid,
                 f"✅ Видео опубликовано!\nhttps://youtu.be/{yt_id}",
@@ -2618,9 +2632,10 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
         except Exception as e:
             logger.error(f"YouTube upload error: {e}", exc_info=True)
+            if video_db_id:
+                await asyncio.to_thread(reset_youtube_video_status, video_db_id, "pending")
             await ctx.bot.send_message(uid, f"❌ Ошибка загрузки: {e}",
                                        reply_markup=_youtube_keyboard())
-            USER_STATE.pop(uid, None)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
