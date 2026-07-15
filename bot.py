@@ -6,7 +6,7 @@ import re
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
-    Application, CallbackQueryHandler, CommandHandler,
+    Application, CallbackQueryHandler, ChatJoinRequestHandler, CommandHandler,
     ContextTypes, MessageHandler, filters,
 )
 
@@ -134,18 +134,47 @@ def _main_keyboard():
     ])
 
 
+def _greeting(first_name: str, joined_group: bool = False) -> str:
+    intro = f"Спасибо, что вступили в группу @baguazhangspb!\n\n" if joined_group else ""
+    return (
+        f"Здравствуйте, {first_name}! 👋\n\n"
+        f"{intro}"
+        "Я Конфуций — помогаю разобраться в практике цигун и ушу на занятиях Сергея в Санкт-Петербурге.\n\n"
+        "Готов ответить на любые вопросы — о занятиях, расписании и записи. Чем могу помочь?"
+    )
+
+
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     _agent.clear_history(user.id)
     _signup.pop(user.id, None)
-    greeting = (
-        f"Здравствуйте, {user.first_name}! 👋\n\n"
-        "Я Конфуций — помогаю разобраться в практике цигун и ушу на занятиях Сергея в Санкт-Петербурге.\n\n"
-        "Готов ответить на любые вопросы — о занятиях, расписании и записи. Чем могу помочь?"
-    )
+    greeting = _greeting(user.first_name)
     _agent.seed(user.id, greeting)
     await update.message.reply_text("👋")
     await update.message.reply_text(greeting, reply_markup=_main_keyboard())
+
+
+async def on_join_request(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Заявка на вступление в группу @baguazhangspb — одобряем и сразу пишем в личку.
+    Telegram разрешает боту первым написать пользователю именно в момент обработки
+    его заявки (через user_chat_id), даже если он раньше не начинал диалог с ботом —
+    это единственный способ поприветствовать нового подписчика в личке без того, чтобы
+    приветствие "прыгало" в самой группе при каждом вступлении."""
+    req = update.chat_join_request
+    user = req.from_user
+    try:
+        await ctx.bot.approve_chat_join_request(req.chat.id, user.id)
+    except Exception as e:
+        logger.error(f"Не удалось одобрить заявку {user.id}: {e}")
+        return
+    _agent.clear_history(user.id)
+    _signup.pop(user.id, None)
+    greeting = _greeting(user.first_name, joined_group=True)
+    _agent.seed(user.id, greeting)
+    try:
+        await ctx.bot.send_message(req.user_chat_id, greeting, reply_markup=_main_keyboard())
+    except Exception as e:
+        logger.warning(f"Не удалось написать в личку новому участнику {user.id}: {e}")
 
 
 async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -219,6 +248,11 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # в группе выходили бы из хендлера раньше, чем сработает редирект в личку
     is_group = chat_type in ("group", "supergroup")
     if is_group:
+        # Служебные сообщения о вступлении/выходе — не отвечаем в группе вообще:
+        # приветствие новым участникам уходит им в личку через on_join_request
+        # (заявки на вступление), а не сюда.
+        if msg.new_chat_members or msg.left_chat_member:
+            return
         if msg.forward_from_chat or (msg.from_user and msg.from_user.is_bot):
             return
         if _is_spam(msg.text or ""):
@@ -324,6 +358,7 @@ def main():
     app = Application.builder().token(CLIENT_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CallbackQueryHandler(on_callback))
+    app.add_handler(ChatJoinRequestHandler(on_join_request))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, on_message))
 
     logger.info("Client bot запущен")
