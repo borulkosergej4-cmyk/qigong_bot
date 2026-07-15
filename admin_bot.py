@@ -415,6 +415,7 @@ async def _growth_reminder_loop(bot: Bot) -> None:
                     kb = InlineKeyboardMarkup([
                         [InlineKeyboardButton("✅ Сделано", callback_data=f"gt_toggle_{task_id}_{section}")],
                         [InlineKeyboardButton("📋 Весь план", callback_data="growth_menu")],
+                        [InlineKeyboardButton("◀ Главное меню", callback_data="main_menu")],
                     ])
                     for admin_id in ADMIN_IDS:
                         try:
@@ -607,6 +608,7 @@ async def _render_editpub_detail(uid: int, yt_id: str, video_db_id: int | None):
         [InlineKeyboardButton("✏️ Изменить описание", callback_data="yt_editpub_desc")],
         [InlineKeyboardButton("➕ В плейлист «Бадуаньцзин»", callback_data="yt_addplaylist")],
         [InlineKeyboardButton("◀ Назад", callback_data="youtube_menu")],
+        [InlineKeyboardButton("◀ Главное меню", callback_data="main_menu")],
     ])
     return text, kb
 
@@ -620,7 +622,10 @@ def _platform_keyboard(prefix: str = "platform"):
     ])
 
 def _back_keyboard(cb: str = "main_menu"):
-    return InlineKeyboardMarkup([[InlineKeyboardButton("◀ Назад", callback_data=cb)]])
+    rows = [[InlineKeyboardButton("◀ Назад", callback_data=cb)]]
+    if cb != "main_menu":
+        rows.append([InlineKeyboardButton("◀ Главное меню", callback_data="main_menu")])
+    return InlineKeyboardMarkup(rows)
 
 
 _GROWTH_SECTION_NAMES = {
@@ -668,6 +673,7 @@ async def _render_growth_section(section: str):
         mark = "✅" if done else "⬜"
         btns.append([InlineKeyboardButton(f"{mark} {label_text[:55]}", callback_data=f"gt_toggle_{tid}_{section}")])
     btns.append([InlineKeyboardButton("◀ К разделам", callback_data="growth_menu")])
+    btns.append([InlineKeyboardButton("◀ Главное меню", callback_data="main_menu")])
     return text, InlineKeyboardMarkup(btns)
 
 
@@ -813,6 +819,7 @@ def _plan_keyboard(plan_id: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton("✅ Утвердить план", callback_data=f"cp_approve_{plan_id}")],
         [InlineKeyboardButton("🔄 Переделать",    callback_data="cp_regen")],
         [InlineKeyboardButton("◀ Назад",          callback_data="content_plan")],
+        [InlineKeyboardButton("◀ Главное меню",   callback_data="main_menu")],
     ])
 
 
@@ -948,6 +955,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🔁 Обновить права доступа", callback_data="yt_reauth")],
                     [InlineKeyboardButton("◀ Назад", callback_data="youtube_menu")],
+                    [InlineKeyboardButton("◀ Главное меню", callback_data="main_menu")],
                 ]),
             )
             return
@@ -1018,6 +1026,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             if status == "published" and yt_id:
                 btns.append([InlineKeyboardButton(f"✏️ {title[:40]}", callback_data=f"yt_editpub_{vid_id}")])
         btns.append([InlineKeyboardButton("◀ Назад", callback_data="youtube_menu")])
+        btns.append([InlineKeyboardButton("◀ Главное меню", callback_data="main_menu")])
         await _safe_edit(q, "\n\n".join(lines), reply_markup=InlineKeyboardMarkup(btns))
 
     elif data == "yt_editpub_byurl":
@@ -1217,6 +1226,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 kb = InlineKeyboardMarkup([
                     [InlineKeyboardButton("✏️ Редактировать сценарий", callback_data="yt_edit_script")],
                     [InlineKeyboardButton("◀ YouTube-меню", callback_data="youtube_menu")],
+                    [InlineKeyboardButton("◀ Главное меню", callback_data="main_menu")],
                 ])
             else:
                 kb = None
@@ -1248,6 +1258,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 kb = InlineKeyboardMarkup([
                     [InlineKeyboardButton("✏️ Редактировать описание", callback_data="yt_edit_desc")],
                     [InlineKeyboardButton("◀ YouTube-меню", callback_data="youtube_menu")],
+                    [InlineKeyboardButton("◀ Главное меню", callback_data="main_menu")],
                 ])
             else:
                 kb = None
@@ -1620,6 +1631,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("← Оставить как есть", callback_data="cp_view")],
+                [InlineKeyboardButton("◀ Главное меню", callback_data="main_menu")],
             ]),
         )
 
@@ -1659,6 +1671,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("📱 ВКонтакте", callback_data=f"plan_gen_vk_{plan_id}_{idx}")],
                 [InlineKeyboardButton("🌐 Обе",        callback_data=f"plan_gen_both_{plan_id}_{idx}")],
                 [InlineKeyboardButton("◀ К списку",     callback_data="cp_view")],
+                [InlineKeyboardButton("◀ Главное меню", callback_data="main_menu")],
             ]),
         )
 
@@ -1781,6 +1794,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         btns = [[InlineKeyboardButton(f"🗑 {name}", callback_data=f"del_photo_{pid}")]
                 for pid, name, _ in rows]
         btns.append([InlineKeyboardButton("◀ Назад", callback_data="media_menu")])
+        btns.append([InlineKeyboardButton("◀ Главное меню", callback_data="main_menu")])
         await q.edit_message_text("Выбери фото для удаления:",
                                   reply_markup=InlineKeyboardMarkup(btns))
 
@@ -1805,6 +1819,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         btns = [[InlineKeyboardButton(f"🗑 {name}", callback_data=f"del_video_{vid_id}")]
                 for vid_id, name in rows]
         btns.append([InlineKeyboardButton("◀ Назад", callback_data="media_menu")])
+        btns.append([InlineKeyboardButton("◀ Главное меню", callback_data="main_menu")])
         await q.edit_message_text("Выбери видео для удаления:",
                                   reply_markup=InlineKeyboardMarkup(btns))
 
@@ -1829,6 +1844,7 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         btns = [[InlineKeyboardButton(f"🗑 {name}", callback_data=f"del_audio_{aud_id}")]
                 for aud_id, name in rows]
         btns.append([InlineKeyboardButton("◀ Назад", callback_data="media_menu")])
+        btns.append([InlineKeyboardButton("◀ Главное меню", callback_data="main_menu")])
         await q.edit_message_text("Выбери аудио для удаления:",
                                   reply_markup=InlineKeyboardMarkup(btns))
 
@@ -2040,6 +2056,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("✏️ Редактировать описание", callback_data="yt_edit_desc")],
                 [InlineKeyboardButton("📤 Загрузить видео и опубликовать", callback_data="yt_upload_prompt")],
                 [InlineKeyboardButton("◀ YouTube-меню",       callback_data="youtube_menu")],
+                [InlineKeyboardButton("◀ Главное меню",       callback_data="main_menu")],
             ])
             if thumb:
                 await ctx.bot.send_photo(uid, photo=BytesIO(thumb), caption=caption, reply_markup=kb)
@@ -2065,6 +2082,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("📤 Загрузить видео и опубликовать", callback_data="yt_upload_prompt")],
             [InlineKeyboardButton("◀ YouTube-меню", callback_data="youtube_menu")],
+            [InlineKeyboardButton("◀ Главное меню", callback_data="main_menu")],
         ])
         await update.message.reply_text("✅ Сценарий обновлён.", reply_markup=kb)
         return
@@ -2081,6 +2099,7 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("📤 Загрузить видео и опубликовать", callback_data="yt_upload_prompt")],
             [InlineKeyboardButton("◀ YouTube-меню", callback_data="youtube_menu")],
+            [InlineKeyboardButton("◀ Главное меню", callback_data="main_menu")],
         ])
         await update.message.reply_text("✅ Описание обновлено.", reply_markup=kb)
         return
@@ -2690,6 +2709,7 @@ async def _ask_bg_video(update: Update, ctx: ContextTypes.DEFAULT_TYPE, uid: int
     for i, v in enumerate(videos[:8]):
         btns.append([InlineKeyboardButton(f"🎥 {v.stem}", callback_data=f"reel_bg_{i}")])
     btns.append([InlineKeyboardButton("◀ Назад", callback_data="create_reel")])
+    btns.append([InlineKeyboardButton("◀ Главное меню", callback_data="main_menu")])
     msg = update.message or (update.callback_query.message if update.callback_query else None)
     if msg:
         await msg.reply_text("🎨 Выбери видео-фон для Reel:", reply_markup=InlineKeyboardMarkup(btns))
@@ -2708,6 +2728,7 @@ async def _ask_audio(update: Update, ctx: ContextTypes.DEFAULT_TYPE, uid: int, g
     for i, a in enumerate(audios[:8]):
         btns.append([InlineKeyboardButton(f"🎵 {Path(a).stem}", callback_data=f"reel_audio_{i}")])
     btns.append([InlineKeyboardButton("◀ Назад", callback_data="create_reel")])
+    btns.append([InlineKeyboardButton("◀ Главное меню", callback_data="main_menu")])
     kb = InlineKeyboardMarkup(btns)
     q = update.callback_query
     if q:
@@ -2724,6 +2745,7 @@ async def _ask_duration(update: Update, ctx: ContextTypes.DEFAULT_TYPE, uid: int
         [InlineKeyboardButton("15 сек", callback_data="reel_dur_15")],
         [InlineKeyboardButton("30 сек", callback_data="reel_dur_30")],
         [InlineKeyboardButton("60 сек", callback_data="reel_dur_60")],
+        [InlineKeyboardButton("◀ Главное меню", callback_data="main_menu")],
     ])
     q = update.callback_query
     if q:
