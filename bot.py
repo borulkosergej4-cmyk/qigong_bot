@@ -218,12 +218,12 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(
             "Boosty — онлайн-занятия с Сергеем, видеоуроки и материалы для подписчиков.\n\n"
             "VK Донат — поддержать канал, подписки с доступом к видеоурокам.\n\n"
-            "PayWall и Tribute — ещё два способа оформить подписку.",
+            "PayWall (оплата в рублях) и Tribute (оплата в долларах) — ещё два способа оформить подписку.",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("Boosty — онлайн-занятия и видеоуроки", url="https://boosty.to/s.borulko")],
                 [InlineKeyboardButton("VK Донат — поддержать канал", url="https://vk.com/donut/club162151764")],
-                [InlineKeyboardButton("PayWall — оформить подписку", url="https://paywall.pw/vnop59gqklxz")],
-                [InlineKeyboardButton("Tribute — оформить подписку", url="https://web.tribute.tg/s/10A1")],
+                [InlineKeyboardButton("PayWall — оплата в рублях", url="https://paywall.pw/vnop59gqklxz")],
+                [InlineKeyboardButton("Tribute — оплата в долларах", url="https://web.tribute.tg/s/10A1")],
                 [InlineKeyboardButton("◀ Назад", callback_data="back_main")],
             ]),
         )
