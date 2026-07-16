@@ -365,7 +365,10 @@ def main():
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, on_message))
 
     logger.info("Client bot запущен")
-    app.run_polling(drop_pending_updates=True)
+    # chat_join_request не входит в набор обновлений по умолчанию — Telegram присылает его,
+    # только если явно запросить через allowed_updates. Без этого on_join_request никогда
+    # не вызывается, хотя заявка на вступление у пользователя формально уходит.
+    app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
